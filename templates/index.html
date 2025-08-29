@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>WhatsApp Reminder Sender</title>
+  <title>WhatsApp Reminder By Krishna</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <style>
     .preview-box {
@@ -24,12 +24,23 @@
     .toggle-section {
       display: none;
     }
+
+    #logContainer {
+      white-space: pre-line;
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 300px;
+      overflow: auto;
+      background: #fff;
+      border-radius: 8px;
+      font-family: "Segoe UI", sans-serif;
+    }
   </style>
 </head>
 
 <body class="bg-light">
   <div class="container py-5">
-    <h2 class="mb-4 text-center">📲 WhatsApp Reminder Sender</h2>
+    <h2 class="mb-4 text-center">📲 WhatsApp Reminder By Krishna</h2>
 
     <!-- Upload + Template -->
     <form method="POST" enctype="multipart/form-data" class="mb-4">
@@ -83,7 +94,24 @@
     </div>
 
     <!-- Logs -->
-    {% if logs %}
+    {% if live %}
+    <div class="card shadow mt-4">
+      <div class="card-body">
+        <h5 class="card-title">📊 Live Sending Logs</h5>
+        <div id="logContainer"></div>
+      </div>
+    </div>
+
+    <script>
+      const logContainer = document.getElementById('logContainer');
+      const evtSource = new EventSource("/stream_logs");
+
+      evtSource.onmessage = function(event) {
+          logContainer.textContent += event.data + "\n";
+          logContainer.scrollTop = logContainer.scrollHeight;
+      };
+    </script>
+    {% elif logs %}
     <div class="card shadow mt-4">
       <div class="card-body">
         <h5 class="card-title">Logs</h5>
@@ -127,17 +155,17 @@
       }
     }
 
-    // Initialize preview on page load
     updatePreview();
   </script>
-<!-- Footer -->
-<div class="text-center mt-5 mb-3">
-  <small>
-    Developed by 
-    <a href="mailto:kona.krishna1997@gmail.com" style="text-decoration: none; font-weight: bold;">
-      KRISHNA
-    </a>
-  </small>
-</div>
+
+  <!-- Footer -->
+  <div class="text-center mt-5 mb-3">
+    <small>
+      Developed by 
+      <a href="mailto:kona.krishna1997@gmail.com" style="text-decoration: none; font-weight: bold;">
+        KRISHNA
+      </a>
+    </small>
+  </div>
 </body>
 </html>
