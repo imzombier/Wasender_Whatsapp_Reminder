@@ -1,6 +1,10 @@
+"""this code for sending whatsapp messages without image only text message
+"""
+
+
+
 from flask import Flask, render_template, request, redirect, url_for
-import re, pandas as pd, requests, os
-import time
+import re, pandas as pd, requests, os, time
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
@@ -8,9 +12,7 @@ API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = "static"
 logs = []
-
 
 # ----------- Helper Functions ------------
 def normalize_columns(cols):
@@ -21,13 +23,11 @@ def normalize_columns(cols):
         normalized.append(c)
     return normalized
 
-
 def get_value(row, possible_names):
     for name in possible_names:
         if name.upper() in row.index:
             return row[name.upper()]
     return None
-
 
 def build_msg(template, name, loan_no, advance, edi, overdue, payable):
     return template.format(
@@ -40,25 +40,13 @@ def build_msg(template, name, loan_no, advance, edi, overdue, payable):
         paylink=PAYMENT_LINK
     )
 
-
-def send_whatsapp(mobile, message, image_url=None):
-    """Send text with optional image caption via WaSender"""
+def send_whatsapp(mobile, message):
+    """Send text message via WaSender only"""
     mobile_str = str(mobile).strip()
     if not mobile_str.startswith("+"):
         mobile_str = f"+91{mobile_str}"
 
-    if image_url:
-        payload = {
-            "to": mobile_str,
-            "type": "image",
-            "image": {
-                "url": image_url,
-                "caption": message
-            }
-        }
-    else:
-        payload = {"to": mobile_str, "text": message}
-
+    payload = {"to": mobile_str, "text": message}
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 
     try:
@@ -69,30 +57,21 @@ def send_whatsapp(mobile, message, image_url=None):
         print("Error:", e)
         return False
 
-
 # ----------- Flask Routes ------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     global logs
-    preview_message, preview_image = None, None
+    preview_message = None
 
     if request.method == "POST":
         file = request.files.get("file")
         template = request.form.get("template")
         skip_loans_input = request.form.get("skip_loans", "").strip()
 
-        # convert to list of loan numbers
         skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
 
         if not file or not template:
             return redirect(url_for("index"))
-
-        # fixed image from project static folder
-        image_file = "my_banner.jpeg"
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], image_file)
-        image_url = None
-        if os.path.exists(image_path):
-            image_url = url_for("static", filename=image_file, _external=True)
 
         df = pd.read_excel(file)
         df.columns = normalize_columns(df.columns)
@@ -113,7 +92,6 @@ def index():
                 logs.append(f"⚠️ Skipped row – Missing Name or Mobile")
                 continue
 
-            # 🔹 Skip loan numbers entered in HTML
             if loan_no in skip_loans:
                 logs.append(f"⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
                 continue
@@ -126,16 +104,16 @@ def index():
 
             if not first_preview_done:
                 preview_message = message
-                preview_image = image_url
                 first_preview_done = True
 
-            success = send_whatsapp(mobile, message, image_url=image_url)
+            success = send_whatsapp(mobile, message)
             logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
-            
+
+            # Wait 61 seconds between messages to respect free trial
+            time.sleep(61)
 
         return render_template("index.html", logs=logs, template=template,
-                               preview=preview_message, preview_image=preview_image,
-                               skip_loans=skip_loans_input)
+                               preview=preview_message, skip_loans=skip_loans_input)
 
     default_template = (
         "👋 ప్రియమైన {name} గారు,\n\n"
@@ -147,9 +125,8 @@ def index():
         "💳 చెల్లించడానికి లింక్: {paylink}"
     )
     return render_template("index.html", logs=logs, template=default_template,
-                           preview=preview_message, preview_image=None, skip_loans="")
-
+                           preview=preview_message, skip_loans="")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # 🔹 Render requires binding to PORT env var
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
