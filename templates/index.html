@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>WhatsApp Reminder Sender</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <style>
+    .preview-box {
+      white-space: pre-wrap;
+      background: #f8f9fa;
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: "Segoe UI", sans-serif;
+    }
+
+    .preview-img {
+      max-height: 200px;
+      margin-top: 10px;
+      border-radius: 8px;
+    }
+
+    .toggle-section {
+      display: none;
+    }
+  </style>
+</head>
+
+<body class="bg-light">
+  <div class="container py-5">
+    <h2 class="mb-4 text-center">📲 WhatsApp Reminder Sender</h2>
+
+    <!-- Upload + Template -->
+    <form method="POST" enctype="multipart/form-data" class="mb-4">
+      <div class="mb-3">
+        <label class="form-label fw-bold">Select Excel File:</label>
+        <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
+      </div>
+
+      <!-- Toggle Buttons -->
+      <div class="d-flex gap-2 mb-3">
+        <button type="button" class="btn btn-outline-primary w-50" onclick="toggleSection('editBox')">
+          ✍️ Edit Message Template
+        </button>
+        <button type="button" class="btn btn-outline-info w-50" onclick="toggleSection('previewCard')">
+          👀 Preview Message
+        </button>
+      </div>
+
+      <!-- Hidden: Edit Template -->
+      <div id="editBox" class="toggle-section mb-3">
+        <label class="form-label fw-bold">Message Template:</label>
+        <textarea id="templateBox" name="template" class="form-control" rows="8"
+          oninput="updatePreview()">{{ template }}</textarea>
+        <div class="form-text">
+          Use placeholders: <b>{name}</b>, <b>{loan_no}</b>, <b>{advance}</b>,
+          <b>{edi}</b>, <b>{overdue}</b>, <b>{payable}</b>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label fw-bold">Skip Loan Numbers:</label>
+        <input type="text" name="skip_loans" value="{{ skip_loans }}" placeholder="Example: LN12345, LN67890"
+          class="form-control">
+        <div class="form-text">Enter loan numbers separated by commas or spaces. Those customers will be skipped.</div>
+      </div>
+
+      <button class="btn btn-success w-100" type="submit">🚀 Upload & Send</button>
+    </form>
+
+    <!-- Hidden: Live Preview -->
+    <div id="previewCard" class="toggle-section card shadow mb-4">
+      <div class="card-body">
+        <h5 class="card-title">📢 Live Preview</h5>
+        <div id="previewBox" class="preview-box">
+          {{ preview }}
+        </div>
+        {% if preview_image %}
+        <img src="{{ preview_image }}" class="preview-img img-fluid">
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Logs -->
+    {% if logs %}
+    <div class="card shadow mt-4">
+      <div class="card-body">
+        <h5 class="card-title">Logs</h5>
+        <ul class="list-group">
+          {% for log in logs %}
+          <li class="list-group-item 
+            {% if '✅' in log %}list-group-item-success
+            {% elif '❌' in log %}list-group-item-danger
+            {% elif '⏩' in log %}list-group-item-warning
+            {% else %}list-group-item-secondary{% endif %}">
+            {{ log }}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    function updatePreview() {
+      const template = document.getElementById("templateBox")?.value || "";
+      const preview = template
+        .replace("{name}", "Ramesh")
+        .replace("{loan_no}", "LN12345")
+        .replace("{advance}", "500")
+        .replace("{edi}", "2000")
+        .replace("{overdue}", "1500")
+        .replace("{payable}", "3000");
+
+      const previewBox = document.getElementById("previewBox");
+      if (previewBox) previewBox.innerText = preview;
+    }
+
+    function toggleSection(id) {
+      const section = document.getElementById(id);
+      if (section.style.display === "none" || section.style.display === "") {
+        section.style.display = "block";
+      } else {
+        section.style.display = "none";
+      }
+    }
+
+    // Initialize preview on page load
+    updatePreview();
+  </script>
+</body>
+
+</html>
