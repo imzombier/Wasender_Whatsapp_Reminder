@@ -131,7 +131,7 @@ def index():
 
             success = send_whatsapp(mobile, message, image_url=image_url)
             logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
-            time.sleep(60)
+            
 
         return render_template("index.html", logs=logs, template=template,
                                preview=preview_message, preview_image=preview_image,
