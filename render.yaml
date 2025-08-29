@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: Wasender-Whatsapp-Bot
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: pip install --prefer-binary -r requirements.txt
+    startCommand: gunicorn main:app
+    envVars:
+      - key: WASENDER_URL
+        value: "https://wasenderapi.com/api/send-message"
+      - key: WASENDER_API_KEY
+        value: "eb292d52c33035e6c9c31691a1828baed465764ffe43b60c466d8c5f3bf9e462"
+      - key: PAYMENT_LINK
+        value: "https://websitepayments.veritasfin.in"
+    autoDeploy: true
+    pythonVersion: 3.11
