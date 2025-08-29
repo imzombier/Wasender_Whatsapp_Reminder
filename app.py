@@ -1,10 +1,6 @@
-"""this code for sending whatsapp messages without image only text message
-"""
-
-
-
-from flask import Flask, render_template, request, redirect, url_for
-import re, pandas as pd, requests, os, time
+from flask import Flask, render_template, request, redirect, url_for, Response
+import re, pandas as pd, requests, os, time, threading
+from io import BytesIO
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
@@ -57,63 +53,47 @@ def send_whatsapp(mobile, message):
         print("Error:", e)
         return False
 
-# ----------- Flask Routes ------------
+# ----------- Background sending function ------------
+def process_messages(file, template, skip_loans_input):
+    global logs
+    df = pd.read_excel(file)
+    df.columns = normalize_columns(df.columns)
+    skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
+
+    for _, row in df.iterrows():
+        name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
+        loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
+        mobile = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
+        edi = float(get_value(row, ["EDI AMOUNT", "EDIAMOUNT", "EDI"]) or 0)
+        overdue = float(get_value(row, ["OVER DUE", "OVERDUE"]) or 0)
+        advance = float(get_value(row, ["ADVANCE", "ADV"]) or 0)
+        payable = (edi + overdue) - advance
+
+        if not name or not mobile:
+            logs.append(f"⚠️ Skipped row – Missing Name or Mobile")
+            continue
+
+        if loan_no in skip_loans:
+            logs.append(f"⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
+            continue
+
+        if payable <= 0:
+            logs.append(f"⏩ Skipped {name} ({mobile}) – No pending amount")
+            continue
+
+        message = build_msg(template, name, loan_no, advance, edi, overdue, payable)
+        success = send_whatsapp(mobile, message)
+        logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
+
+        time.sleep(61)  # Respect WaSender free trial limit
+
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global logs
-    preview_message = None
-
-    if request.method == "POST":
-        file = request.files.get("file")
-        template = request.form.get("template")
-        skip_loans_input = request.form.get("skip_loans", "").strip()
-
-        skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
-
-        if not file or not template:
-            return redirect(url_for("index"))
-
-        df = pd.read_excel(file)
-        df.columns = normalize_columns(df.columns)
-
-        logs = []
-        first_preview_done = False
-
-        for _, row in df.iterrows():
-            name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
-            loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
-            mobile = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
-            edi = float(get_value(row, ["EDI AMOUNT", "EDIAMOUNT", "EDI"]) or 0)
-            overdue = float(get_value(row, ["OVER DUE", "OVERDUE"]) or 0)
-            advance = float(get_value(row, ["ADVANCE", "ADV"]) or 0)
-            payable = (edi + overdue) - advance
-
-            if not name or not mobile:
-                logs.append(f"⚠️ Skipped row – Missing Name or Mobile")
-                continue
-
-            if loan_no in skip_loans:
-                logs.append(f"⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
-                continue
-
-            if payable <= 0:
-                logs.append(f"⏩ Skipped {name} ({mobile}) – No pending amount")
-                continue
-
-            message = build_msg(template, name, loan_no, advance, edi, overdue, payable)
-
-            if not first_preview_done:
-                preview_message = message
-                first_preview_done = True
-
-            success = send_whatsapp(mobile, message)
-            logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
-
-            # Wait 61 seconds between messages to respect free trial
-            time.sleep(61)
-
-        return render_template("index.html", logs=logs, template=template,
-                               preview=preview_message, skip_loans=skip_loans_input)
+    global logs, preview_message
+    logs = []
+    preview_message = ""
 
     default_template = (
         "👋 ప్రియమైన {name} గారు,\n\n"
@@ -125,9 +105,41 @@ def index():
         "⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n\n"
         "💳 చెల్లించడానికి లింక్: {paylink}"
     )
-    return render_template("index.html", logs=logs, template=default_template,
-                           preview=preview_message, skip_loans="")
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        template = request.form.get("template") or default_template
+        skip_loans_input = request.form.get("skip_loans", "").strip()
+
+        if not file:
+            return redirect(url_for("index"))
+
+        # Read file into memory
+        file_bytes = BytesIO(file.read())
+
+        # Start background thread with file bytes
+        thread = threading.Thread(target=process_messages, args=(file_bytes, template, skip_loans_input))
+        thread.start()
+
+        return render_template("index.html", template=template, skip_loans=skip_loans_input, live=True, preview=preview_message, logs=[])
+
+    return render_template("index.html", template=default_template, skip_loans="", live=False, preview=preview_message, logs=[])
+
+
+# ----------- SSE Route for live logs ------------
+@app.route("/stream_logs")
+def stream_logs():
+    def generate():
+        last_index = 0
+        while True:
+            global logs
+            if last_index < len(logs):
+                for i in range(last_index, len(logs)):
+                    yield f"data: {logs[i]}\n\n"
+                last_index = len(logs)
+            time.sleep(1)
+    return Response(generate(), mimetype="text/event-stream")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
