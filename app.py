@@ -63,7 +63,15 @@ def process_messages(file, template, skip_loans_input):
     for _, row in df.iterrows():
         name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
         loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
-        mobile = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
+        mobile_raw = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
+        if pd.notna(mobile_raw):
+            if isinstance(mobile_raw, float):
+                mobile = str(int(mobile_raw))   # removes .0
+            else:
+                mobile = str(mobile_raw).strip()
+        else:
+            mobile = ""
+
         edi = float(get_value(row, ["EDI AMOUNT", "EDIAMOUNT", "EDI"]) or 0)
         overdue = float(get_value(row, ["OVER DUE", "OVERDUE"]) or 0)
         advance = float(get_value(row, ["ADVANCE", "ADV"]) or 0)
