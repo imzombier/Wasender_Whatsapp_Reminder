@@ -1,16 +1,15 @@
 from flask import Flask, render_template, request, redirect, url_for, Response
-import re, pandas as pd, requests, os, time, threading
+import re, pandas as pd, requests, os, time, threading, random
 from io import BytesIO
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
-API_KEY = os.getenv("WASENDER_API_KEY", "")
+API_KEY = os.getenv("WASENDER_API_KEY", " ")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
-SLEEP_TIME = int(os.getenv("SLEEP_TIME", "5"))  # default 5 seconds
-
 
 app = Flask(__name__)
 logs = []
+
 
 # ----------- Helper Functions ------------
 def normalize_columns(cols):
@@ -21,11 +20,13 @@ def normalize_columns(cols):
         normalized.append(c)
     return normalized
 
+
 def get_value(row, possible_names):
     for name in possible_names:
         if name.upper() in row.index:
             return row[name.upper()]
     return None
+
 
 def build_msg(template, name, loan_no, advance, edi, overdue, payable):
     return template.format(
@@ -38,13 +39,18 @@ def build_msg(template, name, loan_no, advance, edi, overdue, payable):
         paylink=PAYMENT_LINK
     )
 
+
 def send_whatsapp(mobile, message):
-    """Send text message via WaSender only"""
+    """Send text only via WaSender"""
     mobile_str = str(mobile).strip()
     if not mobile_str.startswith("+"):
         mobile_str = f"+91{mobile_str}"
 
-    payload = {"to": mobile_str, "text": message}
+    payload = {
+        "to": mobile_str,
+        "text": message
+    }
+
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 
     try:
@@ -55,20 +61,25 @@ def send_whatsapp(mobile, message):
         print("Error:", e)
         return False
 
+
 # ----------- Background sending function ------------
-def process_messages(file, template, skip_loans_input):
+def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
     global logs
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
     skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
 
-    for _, row in df.iterrows():
+    total = len(df)
+    sent_count = 0
+
+    for idx, row in df.iterrows():
         name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
         loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
         mobile_raw = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
+
         if pd.notna(mobile_raw):
             if isinstance(mobile_raw, float):
-                mobile = str(int(mobile_raw))   # removes .0
+                mobile = str(int(mobile_raw))
             else:
                 mobile = str(mobile_raw).strip()
         else:
@@ -93,24 +104,29 @@ def process_messages(file, template, skip_loans_input):
 
         message = build_msg(template, name, loan_no, advance, edi, overdue, payable)
         success = send_whatsapp(mobile, message)
+        sent_count += 1
+
         logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
+        logs.append(f"📊 Progress: {sent_count} / {total}")
 
-        time.sleep(SLEEP_TIME)  # Respect WaSender free trial limit
+        wait_time = random.randint(sleep_min, sleep_max)
+        logs.append(f"⏳ Waiting {wait_time} seconds before next message...")
+        time.sleep(wait_time)
 
+    logs.append("🎉 Completed sending all messages")
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global logs, preview_message
+    global logs
     logs = []
-    preview_message = ""
 
     default_template = (
         "👋 ప్రియమైన {name} గారు,\n\n"
         "మీ Veritas Finance లో ఉన్న పెండింగ్ వివరాలు:\n\n"
         "🆔 Loan ID: {loan_no}\n"
-        "📌 EDI మొత్తం: ₹{edi}\n"
-        "🔴 OVER DUE మొత్తం: ₹{overdue}\n"
+        "📌 EDI Amount: ₹{edi}\n"
+        "🔴 Over Due Amount: ₹{overdue}\n"
         "✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
         "⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n\n"
         "💳 చెల్లించడానికి లింక్: {paylink}"
@@ -120,23 +136,28 @@ def index():
         file = request.files.get("file")
         template = request.form.get("template") or default_template
         skip_loans_input = request.form.get("skip_loans", "").strip()
+        sleep_min = int(request.form.get("sleep_min", "15"))
+        sleep_max = int(request.form.get("sleep_max", "30"))
 
         if not file:
             return redirect(url_for("index"))
 
-        # Read file into memory
         file_bytes = BytesIO(file.read())
 
-        # Start background thread with file bytes
-        thread = threading.Thread(target=process_messages, args=(file_bytes, template, skip_loans_input))
+        thread = threading.Thread(
+            target=process_messages,
+            args=(file_bytes, template, skip_loans_input, sleep_min, sleep_max)
+        )
         thread.start()
 
-        return render_template("index.html", template=template, skip_loans=skip_loans_input, live=True, preview=preview_message, logs=[])
+        return render_template("index.html", template=template, skip_loans=skip_loans_input,
+                               sleep_min=sleep_min, sleep_max=sleep_max,
+                               live=True, logs=[])
 
-    return render_template("index.html", template=default_template, skip_loans="", live=False, preview=preview_message, logs=[])
+    return render_template("index.html", template=default_template, skip_loans="",
+                           sleep_min=15, sleep_max=30, live=False, logs=[])
 
 
-# ----------- SSE Route for live logs ------------
 @app.route("/stream_logs")
 def stream_logs():
     def generate():
@@ -149,6 +170,7 @@ def stream_logs():
                 last_index = len(logs)
             time.sleep(1)
     return Response(generate(), mimetype="text/event-stream")
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
