@@ -93,7 +93,7 @@ def process_messages(file, template, skip_loans_input):
         success = send_whatsapp(mobile, message)
         logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
 
-        time.sleep(1)  # Respect WaSender free trial limit
+        time.sleep(5)  # Respect WaSender free trial limit
 
 
 
