@@ -15,12 +15,6 @@
       font-family: "Segoe UI", sans-serif;
     }
 
-    .preview-img {
-      max-height: 200px;
-      margin-top: 10px;
-      border-radius: 8px;
-    }
-
     .toggle-section {
       display: none;
     }
@@ -77,6 +71,18 @@
         <div class="form-text">Enter loan numbers separated by commas or spaces. Those customers will be skipped.</div>
       </div>
 
+      <!-- Min & Max Wait -->
+      <div class="row mb-3">
+        <div class="col">
+          <label class="form-label fw-bold">Min Wait (seconds):</label>
+          <input type="number" name="sleep_min" value="{{ sleep_min }}" min="1" class="form-control">
+        </div>
+        <div class="col">
+          <label class="form-label fw-bold">Max Wait (seconds):</label>
+          <input type="number" name="sleep_max" value="{{ sleep_max }}" min="1" class="form-control">
+        </div>
+      </div>
+
       <button class="btn btn-success w-100" type="submit">🚀 Upload & Send</button>
     </form>
 
@@ -87,9 +93,6 @@
         <div id="previewBox" class="preview-box">
           {{ preview }}
         </div>
-        {% if preview_image %}
-        <img src="{{ preview_image }}" class="preview-img img-fluid">
-        {% endif %}
       </div>
     </div>
 
@@ -106,9 +109,9 @@
       const logContainer = document.getElementById('logContainer');
       const evtSource = new EventSource("/stream_logs");
 
-      evtSource.onmessage = function(event) {
-          logContainer.textContent += event.data + "\n";
-          logContainer.scrollTop = logContainer.scrollHeight;
+      evtSource.onmessage = function (event) {
+        logContainer.textContent += event.data + "\n";
+        logContainer.scrollTop = logContainer.scrollHeight;
       };
     </script>
     {% elif logs %}
@@ -121,9 +124,7 @@
             {% if '✅' in log %}list-group-item-success
             {% elif '❌' in log %}list-group-item-danger
             {% elif '⏩' in log %}list-group-item-warning
-            {% else %}list-group-item-secondary{% endif %}">
-            {{ log }}
-          </li>
+            {% else %}list-group-item-secondary{% endif %}">{{ log }}</li>
           {% endfor %}
         </ul>
       </div>
@@ -161,11 +162,12 @@
   <!-- Footer -->
   <div class="text-center mt-5 mb-3">
     <small>
-      Developed by 
+      Developed by
       <a href="mailto:kona.krishna1997@gmail.com" style="text-decoration: none; font-weight: bold;">
         KRISHNA
       </a>
     </small>
   </div>
 </body>
+
 </html>
