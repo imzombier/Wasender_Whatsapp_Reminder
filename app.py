@@ -6,6 +6,8 @@ from io import BytesIO
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
 API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
+SLEEP_TIME = int(os.getenv("SLEEP_TIME", "5"))  # default 5 seconds
+
 
 app = Flask(__name__)
 logs = []
@@ -93,7 +95,7 @@ def process_messages(file, template, skip_loans_input):
         success = send_whatsapp(mobile, message)
         logs.append(f"✅ Sent to {name} ({mobile})" if success else f"❌ Failed {name} ({mobile})")
 
-        time.sleep(5)  # Respect WaSender free trial limit
+        time.sleep(SLEEP_TIME)  # Respect WaSender free trial limit
 
 
 
