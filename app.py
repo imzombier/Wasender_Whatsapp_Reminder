@@ -4,11 +4,15 @@ from io import BytesIO
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
-API_KEY = os.getenv("WASENDER_API_KEY", " ")
+API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
 
 app = Flask(__name__)
 logs = []
+
+# Global state
+stop_sending = False
+task_running = False
 
 
 # ----------- Helper Functions ------------
@@ -64,7 +68,7 @@ def send_whatsapp(mobile, message):
 
 # ----------- Background sending function ------------
 def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
-    global logs
+    global logs, stop_sending, task_running
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
     skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
@@ -73,6 +77,10 @@ def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
     sent_count = 0
 
     for idx, row in df.iterrows():
+        if stop_sending:
+            logs.append("⏹ Sending stopped by user.")
+            break
+
         name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
         loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
         mobile_raw = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
@@ -113,12 +121,16 @@ def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
         logs.append(f"⏳ Waiting {wait_time} seconds before next message...")
         time.sleep(wait_time)
 
-    logs.append("🎉 Completed sending all messages")
+    if not stop_sending:
+        logs.append("🎉 Completed sending all messages")
+
+    task_running = False
+    stop_sending = False  # reset flag
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global logs
+    global logs, stop_sending, task_running
     logs = []
 
     default_template = (
@@ -133,6 +145,10 @@ def index():
     )
 
     if request.method == "POST":
+        if task_running:
+            logs.append("⚠️ A sending task is already running. Please stop it first.")
+            return render_template("index.html", template=default_template, live=True, logs=[])
+
         file = request.files.get("file")
         template = request.form.get("template") or default_template
         skip_loans_input = request.form.get("skip_loans", "").strip()
@@ -142,6 +158,8 @@ def index():
         if not file:
             return redirect(url_for("index"))
 
+        stop_sending = False
+        task_running = True
         file_bytes = BytesIO(file.read())
 
         thread = threading.Thread(
@@ -156,6 +174,14 @@ def index():
 
     return render_template("index.html", template=default_template, skip_loans="",
                            sleep_min=15, sleep_max=30, live=False, logs=[])
+
+
+@app.route("/stop")
+def stop():
+    global stop_sending
+    stop_sending = True
+    logs.append("🛑 Stop request received. Finishing current message...")
+    return redirect(url_for("index"))
 
 
 @app.route("/stream_logs")
