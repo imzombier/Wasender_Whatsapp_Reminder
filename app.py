@@ -137,7 +137,7 @@ def index():
         "👋 ప్రియమైన {name} గారు,\n\n"
         "మీ Veritas Finance లో ఉన్న పెండింగ్ వివరాలు:\n\n"
         "🆔 Loan ID: {loan_no}\n"
-        "📌 EDI Amount: ₹{edi}\n"
+        "📌 Today EMI Amount: ₹{edi}\n"
         "🔴 Over Due Amount: ₹{overdue}\n"
         "✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
         "⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n\n"
@@ -152,8 +152,8 @@ def index():
         file = request.files.get("file")
         template = request.form.get("template") or default_template
         skip_loans_input = request.form.get("skip_loans", "").strip()
-        sleep_min = int(request.form.get("sleep_min", "15"))
-        sleep_max = int(request.form.get("sleep_max", "30"))
+        sleep_min = int(request.form.get("sleep_min", "61"))
+        sleep_max = int(request.form.get("sleep_max", "75"))
 
         if not file:
             return redirect(url_for("index"))
@@ -173,7 +173,7 @@ def index():
                                live=True, logs=[])
 
     return render_template("index.html", template=default_template, skip_loans="",
-                           sleep_min=15, sleep_max=30, live=False, logs=[])
+                           sleep_min=61, sleep_max=75, live=False, logs=[])
 
 
 @app.route("/stop")
