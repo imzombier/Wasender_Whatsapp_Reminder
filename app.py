@@ -152,8 +152,8 @@ def index():
         file = request.files.get("file")
         template = request.form.get("template") or default_template
         skip_loans_input = request.form.get("skip_loans", "").strip()
-        sleep_min = int(request.form.get("sleep_min", "61"))
-        sleep_max = int(request.form.get("sleep_max", "75"))
+        sleep_min = int(request.form.get("sleep_min", "30"))
+        sleep_max = int(request.form.get("sleep_max", "60"))
 
         if not file:
             return redirect(url_for("index"))
@@ -173,7 +173,7 @@ def index():
                                live=True, logs=[])
 
     return render_template("index.html", template=default_template, skip_loans="",
-                           sleep_min=61, sleep_max=75, live=False, logs=[])
+                           sleep_min=30, sleep_max=60, live=False, logs=[])
 
 
 @app.route("/stop")
