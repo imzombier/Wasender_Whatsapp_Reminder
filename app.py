@@ -4,7 +4,7 @@ from io import BytesIO
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
-API_KEY = os.getenv("WASENDER_API_KEY", "")
+API_KEY = os.getenv("WASENDER_API_KEY", "eb292d52c33035e6c9c31691a1828baed465764ffe43b60c466d8c5f3bf9e462")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
 
 app = Flask(__name__)
@@ -32,7 +32,75 @@ def get_value(row, possible_names):
     return None
 
 
-def build_msg(template, name, loan_no, advance, edi, overdue, payable):
+def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
+    """Build Telugu WhatsApp message based on BUCKET AGING ranges"""
+
+    try:
+        days_pending = int(float(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]) or 0))
+    except:
+        days_pending = 0
+
+    # ----------------- Bucket Templates -----------------
+    if days_pending == 0:  # Fresh reminder, no days line
+        template = (
+            "👋 ప్రియమైన {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "💰 EMI బకాయి: ₹{payable}\n\n"
+            "⚠️ ఈరోజే చెల్లించండి, లేట్ ఫైన్ & CIBIL స్కోర్ ప్రభావం నివారించండి.\n\n"
+            "💳 చెల్లించండి: {paylink}"
+        )
+
+    elif 1 <= days_pending <= 13:  # Normal Reminder
+        template = (
+            "👋 ప్రియమైన {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "💰 EMI బకాయి: ₹{payable}\n"
+            "⏳ {days} రోజులుగా పెండింగ్‌లో ఉంది.\n\n"
+            "⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే లేట్ ఫైన్ & CIBIL స్కోర్‌పై ప్రభావం ఉంటుంది.\n\n"
+            "💳 చెల్లించండి: {paylink}"
+        )
+
+    elif 14 <= days_pending <= 30:  # Warning
+        template = (
+            "⚠️ హెచ్చరిక {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "⏳ {days} రోజులుగా EMI బకాయి ఉంది.\n"
+            "💸 మొత్తం బకాయి: ₹{payable}\n\n"
+            "తక్షణం చెల్లించకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం ఉంటుంది.\n\n"
+            "💳 చెల్లించండి: {paylink}"
+        )
+
+    elif 31 <= days_pending <= 60:  # Strong Warning
+        template = (
+            "🚨 ACTION REQUIR {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "❌ {days} రోజులుగా EMI చెల్లించలేదు.\n"
+            "💸 మొత్తం బకాయి: ₹{payable}\n\n"
+            "⚠️ వెంటనే చెల్లించకపోతే లీగల్ యాక్షన్ & రికవరీ ప్రాసెస్ ప్రారంభమవుతుంది.\n\n"
+            "💳 తక్షణం చెల్లించండి: {paylink}"
+        )
+
+    elif 61 <= days_pending <= 90:  # Legal Warning
+        template = (
+            "🛑 LEGAL WARNING – {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "❌ {days} రోజులుగా EMI బకాయి ఉంది.\n"
+            "💸 మొత్తం బకాయి: ₹{payable}\n\n"
+            "⚠️ తక్షణం చెల్లించకపోతే లీగల్ యాక్షన్ తీసుకోవాల్సి వస్తుంది.\n\n"
+            "💳 వెంటనే చెల్లించండి: {paylink}"
+        )
+
+    else:  # days_pending >= 91 → Legal Action
+        template = (
+            "⚖️ LEGAL NOTICE – {name} గారు,\n\n"
+            "📌 లోన్ నంబర్: {loan_no}\n"
+            "❌ {days} రోజులుగా EMI బకాయి ఉంది.\n"
+            "💸 మొత్తం బకాయి: ₹{payable}\n\n"
+            "⚖️ కోర్టు లీగల్ ప్రాసెస్ & రికవరీ చర్యలు ప్రారంభమవుతాయి. ఇది చివరి హెచ్చరిక.\n\n"
+            "💳 వెంటనే చెల్లించండి: {paylink}"
+        )
+
+    # ----------------- Fill Values -----------------
     return template.format(
         name=name,
         loan_no=loan_no,
@@ -40,9 +108,9 @@ def build_msg(template, name, loan_no, advance, edi, overdue, payable):
         edi=edi,
         overdue=overdue,
         payable=payable,
+        days=int(days_pending),
         paylink=PAYMENT_LINK
     )
-
 
 def send_whatsapp(mobile, message):
     """Send text only via WaSender"""
@@ -67,7 +135,7 @@ def send_whatsapp(mobile, message):
 
 
 # ----------- Background sending function ------------
-def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
+def process_messages(file, skip_loans_input, sleep_min, sleep_max):
     global logs, stop_sending, task_running
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
@@ -110,7 +178,7 @@ def process_messages(file, template, skip_loans_input, sleep_min, sleep_max):
             logs.append(f"⏩ Skipped {name} ({mobile}) – No pending amount")
             continue
 
-        message = build_msg(template, name, loan_no, advance, edi, overdue, payable)
+        message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable)
         success = send_whatsapp(mobile, message)
         sent_count += 1
 
@@ -133,27 +201,15 @@ def index():
     global logs, stop_sending, task_running
     logs = []
 
-    default_template = (
-        "👋 ప్రియమైన {name} గారు,\n\n"
-        "మీ Veritas Finance లో ఉన్న పెండింగ్ వివరాలు:\n\n"
-        "🆔 Loan ID: {loan_no}\n"
-        "📌 Today EMI Amount: ₹{edi}\n"
-        "🔴 Over Due Amount: ₹{overdue}\n"
-        "✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
-        "⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n\n"
-        "💳 చెల్లించడానికి లింక్: {paylink}"
-    )
-
     if request.method == "POST":
         if task_running:
             logs.append("⚠️ A sending task is already running. Please stop it first.")
-            return render_template("index.html", template=default_template, live=True, logs=[])
+            return render_template("index.html", live=True, logs=[])
 
         file = request.files.get("file")
-        template = request.form.get("template") or default_template
         skip_loans_input = request.form.get("skip_loans", "").strip()
-        sleep_min = int(request.form.get("sleep_min", "30"))
-        sleep_max = int(request.form.get("sleep_max", "60"))
+        sleep_min = int(request.form.get("sleep_min", "61"))
+        sleep_max = int(request.form.get("sleep_max", "180"))
 
         if not file:
             return redirect(url_for("index"))
@@ -164,16 +220,16 @@ def index():
 
         thread = threading.Thread(
             target=process_messages,
-            args=(file_bytes, template, skip_loans_input, sleep_min, sleep_max)
+            args=(file_bytes, skip_loans_input, sleep_min, sleep_max)
         )
         thread.start()
 
-        return render_template("index.html", template=template, skip_loans=skip_loans_input,
+        return render_template("index.html",
+                               skip_loans=skip_loans_input,
                                sleep_min=sleep_min, sleep_max=sleep_max,
                                live=True, logs=[])
 
-    return render_template("index.html", template=default_template, skip_loans="",
-                           sleep_min=30, sleep_max=60, live=False, logs=[])
+    return render_template("index.html", skip_loans="", sleep_min=61, sleep_max=180, live=False, logs=[])
 
 
 @app.route("/stop")
