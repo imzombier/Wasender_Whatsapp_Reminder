@@ -3,185 +3,266 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>WhatsApp Reminder By Krishna</title>
+  <title>WhatsApp Reminder - Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+
   <style>
-    .preview-box {
-      white-space: pre-wrap;
-      background: #f8f9fa;
-      border: 1px solid #ddd;
-      padding: 15px;
-      border-radius: 8px;
-      font-family: "Segoe UI", sans-serif;
+    body {
+      background: #f9f9f9;
+      font-family: 'Segoe UI', sans-serif;
     }
 
-    .toggle-section {
-      display: none;
+    /* Header */
+    .topbar {
+      background: #9b0d19;
+      color: #fff;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
+    .topbar h3 {
+      margin: 0;
+      font-size: 1.3rem;
+    }
+
+    .card-header {
+      background: #9b0d19;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    /* Logs Table */
     #logContainer {
-      white-space: pre-line;
-      border: 1px solid #ccc;
-      padding: 10px;
-      height: 300px;
-      overflow: auto;
-      background: #000;
+      border: 1px solid #ddd;
       border-radius: 8px;
-      font-family: monospace;
-      color: #0f0;
+      height: 280px;
+      overflow-y: auto;
+      background: #fff;
+      font-family: "Segoe UI", "Roboto Mono", monospace;
+      font-size: 14px;
+      box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.1);
+    }
+
+    #logContainer table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    #logContainer th {
+      background: #f3f4f6;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 13px;
+      padding: 6px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    #logContainer td {
+      padding: 6px;
+      border-bottom: 1px solid #eee;
+    }
+
+    #logContainer tr.success td {
+      color: #16a34a;
+      font-weight: 500;
+    }
+
+    #logContainer tr.error td {
+      color: #dc2626;
+      font-weight: 500;
+    }
+
+    #logContainer tr.warning td {
+      color: #d97706;
+      font-weight: 500;
+    }
+
+    #logContainer tr.info td {
+      color: #2563eb;
+      font-weight: 500;
+    }
+
+    footer {
+      padding: 10px;
+      background: #eee;
+      text-align: center;
+      font-size: 0.85rem;
+      margin-top: 20px;
+    }
+
+    /* --- Unified Button Style --- */
+    .btn-custom {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: none !important;
+      outline: none !important;
+      border-radius: 6px !important;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px 20px;
+      color: #fff !important;
+      margin-right: 10px;
+      box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.2);
+      transition: background 0.2s ease-in-out;
+      text-decoration: none !important;
+      font-size: 15px;
+    }
+
+    .btn-start {
+      background: #28a745;
+    }
+
+    .btn-start:hover {
+      background: #218838;
+    }
+
+    .btn-stop {
+      background: #dc3545;
+    }
+
+    .btn-stop:hover {
+      background: #c82333;
     }
   </style>
 </head>
 
-<body class="bg-light">
-  <div class="container py-5">
-    <h2 class="mb-4 text-center">📲 WhatsApp Reminder By Krishna</h2>
+<body>
+  <!-- Topbar -->
+  <div class="topbar">
+    <h3>📲 WhatsApp Reminder - Dashboard</h3>
+    <span>Krishna Naidu</span>
+  </div>
 
-    <!-- Upload + Template -->
-    <form method="POST" enctype="multipart/form-data" class="mb-4">
-      <div class="mb-3">
-        <label class="form-label fw-bold">Select Excel File:</label>
-        <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
-      </div>
-
-      <!-- Toggle Buttons -->
-      <div class="d-flex gap-2 mb-3">
-        <button type="button" class="btn btn-outline-primary w-50" onclick="toggleSection('editBox')">
-          ✍️ Edit Message Template
-        </button>
-        <button type="button" class="btn btn-outline-info w-50" onclick="toggleSection('previewCard')">
-          👀 Preview Message
-        </button>
-      </div>
-
-      <!-- Hidden: Edit Template -->
-      <div id="editBox" class="toggle-section mb-3">
-        <label class="form-label fw-bold">Message Template:</label>
-        <textarea id="templateBox" name="template" class="form-control" rows="8"
-          oninput="updatePreview()">{{ template }}</textarea>
-        <div class="form-text">
-          Use placeholders: <b>{name}</b>, <b>{loan_no}</b>, <b>{advance}</b>,
-          <b>{edi}</b>, <b>{overdue}</b>, <b>{payable}</b>
-        </div>
-      </div>
-
-      <div class="mb-3">
-        <label class="form-label fw-bold">Skip Loan Numbers:</label>
-        <input type="text" name="skip_loans" value="{{ skip_loans }}" placeholder="Example: LN12345, LN67890"
-          class="form-control">
-        <div class="form-text">Enter loan numbers separated by commas or spaces. Those customers will be skipped.</div>
-      </div>
-
-      <!-- Min & Max Wait -->
-      <div class="row mb-3">
-        <div class="col">
-          <label class="form-label fw-bold">Min Wait (seconds):</label>
-          <input type="number" name="sleep_min" value="{{ sleep_min }}" min="1" class="form-control">
-        </div>
-        <div class="col">
-          <label class="form-label fw-bold">Max Wait (seconds):</label>
-          <input type="number" name="sleep_max" value="{{ sleep_max }}" min="1" class="form-control">
-        </div>
-      </div>
-
-      <button class="btn btn-success w-100" type="submit">🚀 Start Sending</button>
-    </form>
-
-    <!-- Hidden: Live Preview -->
-    <div id="previewCard" class="toggle-section card shadow mb-4">
+  <!-- Content -->
+  <div class="container mt-4">
+    <div class="card shadow">
+      <div class="card-header">Upload & Configure</div>
       <div class="card-body">
-        <h5 class="card-title">📢 Live Preview</h5>
-        <div id="previewBox" class="preview-box">
-          {{ preview }}
-        </div>
+        <form method="POST" enctype="multipart/form-data" class="mb-3">
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Select Excel File:</label>
+              <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Skip Loan Numbers:</label>
+              <input type="text" name="skip_loans" placeholder="LN123, LN456" class="form-control">
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Min Wait (sec):</label>
+              <input type="number" name="sleep_min" value="{{ sleep_min }}" min="1" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Max Wait (sec):</label>
+              <input type="number" name="sleep_max" value="{{ sleep_max }}" min="1" class="form-control">
+            </div>
+          </div>
+
+          <!-- Start / Stop Buttons -->
+          <button type="submit" class="btn-custom btn-start">
+            🚀 Start Sending
+          </button>
+
+          <a href="{{ url_for('stop') }}" class="btn-custom btn-stop">
+            🛑 Stop Sending
+          </a>
+        </form>
       </div>
     </div>
 
     <!-- Logs -->
-    {% if live %}
     <div class="card shadow mt-4">
+      <div class="card-header">📊 Live Logs</div>
       <div class="card-body">
-        <h5 class="card-title d-flex justify-content-between">
-          📊 Live Sending Logs
-          <a href="{{ url_for('stop') }}" class="btn btn-danger btn-sm">🛑 Stop Sending</a>
-        </h5>
-        <div id="logContainer"></div>
+        <div id="logContainer">
+          <table>
+            <thead>
+              <tr>
+                <th width="15%">⏱ Time</th>
+                <th width="15%">📌 Status</th>
+                <th>📝 Message</th>
+                <th width="15%">📊 Progress</th>
+                <th width="15%">⏳ Wait Time</th>
+              </tr>
+            </thead>
+            <tbody id="logTable"></tbody>
+          </table>
+        </div>
         <div class="mt-2">
-          <span id="counter">0</span> / <span id="total">{{ total_customers }}</span> messages sent
+          ✅ <span id="counter">0</span> / <span id="total">{{ total_customers }}</span> messages sent
         </div>
       </div>
     </div>
-
-    <script>
-      let sentCount = 0;
-      const logContainer = document.getElementById('logContainer');
-      const evtSource = new EventSource("/stream_logs");
-
-      evtSource.onmessage = function (event) {
-        const msg = event.data;
-        logContainer.textContent += msg + "\n";
-        logContainer.scrollTop = logContainer.scrollHeight;
-
-        if (msg.includes("✅")) {
-          sentCount++;
-          document.getElementById("counter").textContent = sentCount;
-        }
-
-        if (msg.includes("🎉 Completed")) {
-          evtSource.close();
-        }
-      };
-    </script>
-    {% elif logs %}
-    <div class="card shadow mt-4">
-      <div class="card-body">
-        <h5 class="card-title">Logs</h5>
-        <ul class="list-group">
-          {% for log in logs %}
-          <li class="list-group-item 
-            {% if '✅' in log %}list-group-item-success
-            {% elif '❌' in log %}list-group-item-danger
-            {% elif '⏩' in log %}list-group-item-warning
-            {% else %}list-group-item-secondary{% endif %}">{{ log }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
-    {% endif %}
   </div>
-
-  <script>
-    function updatePreview() {
-      const template = document.getElementById("templateBox")?.value || "";
-      const preview = template
-        .replace("{name}", "Ramesh")
-        .replace("{loan_no}", "LN12345")
-        .replace("{advance}", "500")
-        .replace("{edi}", "2000")
-        .replace("{overdue}", "1500")
-        .replace("{payable}", "3000");
-
-      const previewBox = document.getElementById("previewBox");
-      if (previewBox) previewBox.innerText = preview;
-    }
-
-    function toggleSection(id) {
-      const section = document.getElementById(id);
-      section.style.display = (section.style.display === "none" || section.style.display === "") ? "block" : "none";
-    }
-
-    updatePreview();
-  </script>
 
   <!-- Footer -->
-  <div class="text-center mt-5 mb-3">
-    <small>
-      Developed by
-      <a href="mailto:kona.krishna1997@gmail.com" style="text-decoration: none; font-weight: bold;">
-        KRISHNA
-      </a>
-    </small>
-  </div>
-</body>
+  <footer>
+    Developed by <a href="mailto:kona.krishna1997@gmail.com">Krishna</a>
+  </footer>
 
+  <script>
+    let sentCount = 0;
+    const logTable = document.getElementById('logTable');
+    const evtSource = new EventSource("/stream_logs");
+
+    let tempRow = null;
+
+    evtSource.onmessage = function (event) {
+      const msg = event.data;
+      const now = new Date().toLocaleTimeString();
+
+      if (msg.includes("Sent to")) {
+        tempRow = document.createElement("tr");
+
+        const tdTime = document.createElement("td");
+        const tdStatus = document.createElement("td");
+        const tdMsg = document.createElement("td");
+        const tdProgress = document.createElement("td");
+        const tdWait = document.createElement("td");
+
+        tdTime.textContent = now;
+        tdMsg.textContent = msg;
+        tdStatus.textContent = "Success";
+        tdStatus.style.color = "green";
+
+        tempRow.appendChild(tdTime);
+        tempRow.appendChild(tdStatus);
+        tempRow.appendChild(tdMsg);
+        tempRow.appendChild(tdProgress);
+        tempRow.appendChild(tdWait);
+
+        logTable.appendChild(tempRow);
+        logTable.parentElement.scrollTop = logTable.parentElement.scrollHeight;
+
+        sentCount++;
+        document.getElementById("counter").textContent = sentCount;
+      }
+
+      else if (msg.includes("Progress")) {
+        if (tempRow) {
+          tempRow.children[3].textContent = msg.replace("Progress:", "").trim();
+        }
+      }
+
+      else if (msg.includes("Waiting")) {
+        if (tempRow) {
+          const waitMatch = msg.match(/(\d+)\s*seconds/);
+          tempRow.children[4].textContent = waitMatch ? waitMatch[1] + "s" : "-";
+        }
+      }
+
+      else if (msg.includes("Completed")) {
+        evtSource.close();
+      }
+    };
+  </script>
+</body>
 </html>
