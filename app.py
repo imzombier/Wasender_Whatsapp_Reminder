@@ -62,7 +62,7 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
 
     elif 14 <= days_pending <= 30:  # Warning
         template = (
-            "⚠️ హెచ్చరిక {name} గారు,\n\n"
+            "⚠️ హెచ్చరిక - {name} గారు,\n\n"
             "📌 లోన్ నంబర్: {loan_no}\n"
             "⏳ {days} రోజులుగా EMI బకాయి ఉంది.\n"
             "💸 మొత్తం బకాయి: ₹{payable}\n\n"
@@ -72,7 +72,7 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
 
     elif 31 <= days_pending <= 60:  # Strong Warning
         template = (
-            "🚨 ACTION REQUIR {name} గారు,\n\n"
+            "🚨 ACTION REQUIR - {name} గారు,\n\n"
             "📌 లోన్ నంబర్: {loan_no}\n"
             "❌ {days} రోజులుగా EMI చెల్లించలేదు.\n"
             "💸 మొత్తం బకాయి: ₹{payable}\n\n"
@@ -199,12 +199,11 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
 @app.route("/", methods=["GET", "POST"])
 def index():
     global logs, stop_sending, task_running
-    logs = []
 
     if request.method == "POST":
         if task_running:
             logs.append("⚠️ A sending task is already running. Please stop it first.")
-            return render_template("index.html", live=True, logs=[])
+            return render_template("index.html", live=True, logs=logs)
 
         file = request.files.get("file")
         skip_loans_input = request.form.get("skip_loans", "").strip()
@@ -213,6 +212,9 @@ def index():
 
         if not file:
             return redirect(url_for("index"))
+
+        # clear logs only when new task starts
+        logs = []  
 
         stop_sending = False
         task_running = True
@@ -227,9 +229,10 @@ def index():
         return render_template("index.html",
                                skip_loans=skip_loans_input,
                                sleep_min=sleep_min, sleep_max=sleep_max,
-                               live=True, logs=[])
+                               live=True, logs=logs)
 
-    return render_template("index.html", skip_loans="", sleep_min=61, sleep_max=180, live=False, logs=[])
+    # 🔴 do NOT reset logs here anymore
+    return render_template("index.html", skip_loans="", sleep_min=61, sleep_max=180, live=task_running, logs=logs)
 
 
 @app.route("/stop")
