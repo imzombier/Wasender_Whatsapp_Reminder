@@ -8,6 +8,9 @@ WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-messa
 API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
 
+# Your personal WhatsApp number for notifications
+ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "+918096091809")
+
 app = Flask(__name__)
 logs = []
 
@@ -117,6 +120,12 @@ def send_whatsapp(mobile, message):
         return False
 
 
+def notify_admin(message):
+    """Send script status updates to admin WhatsApp"""
+    if ADMIN_WHATSAPP:
+        send_whatsapp(ADMIN_WHATSAPP, message)
+
+
 # ----------- Background sending function ------------
 def process_messages(file, skip_loans_input, sleep_min, sleep_max):
     global logs, stop_sending, task_running
@@ -127,9 +136,16 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
     total = len(df)
     sent_count = 0
 
+    # ✅ Pre-calculate milestone percentages
+    milestone_percents = [20, 40, 60, 80, 100]
+    next_milestone_idx = 0
+
+    notify_admin(f"🚀 Message sending started.\nTotal records: {total}")
+
     for idx, row in df.iterrows():
         if stop_sending:
             logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏹ Sending stopped by user.")
+            notify_admin("🛑 Sending stopped manually.")
             break
 
         name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
@@ -166,17 +182,27 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
         logs.append(f"[{now}] ✅ Sent to {name} ({mobile})" if success else f"[{now}] ❌ Failed {name} ({mobile})")
         logs.append(f"[{now}] 📊 Progress: {sent_count} / {total}")
 
+        # ✅ milestone check by percentage
+        progress_percent = int((sent_count / total) * 100)
+        if next_milestone_idx < len(milestone_percents) and progress_percent >= milestone_percents[next_milestone_idx]:
+            percent = milestone_percents[next_milestone_idx]
+            notify_admin(f"📊 Progress: {percent}% ({sent_count}/{total} sent)")
+            logs.append(f"[{now}] 📢 Milestone reached: {percent}% ({sent_count}/{total})")
+            next_milestone_idx += 1
+
         wait_time = random.randint(sleep_min, sleep_max)
         logs.append(f"[{now}] ⏳ Waiting {wait_time} seconds before next message...")
         time.sleep(wait_time)
 
     if not stop_sending:
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 Completed sending all messages")
+        notify_admin(f"✅ Completed. Sent {sent_count}/{total} messages.")
 
     task_running = False
     stop_sending = False
 
 
+# ----------------- ROUTES -----------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     global logs, stop_sending, task_running
@@ -220,6 +246,7 @@ def stop():
     global stop_sending
     stop_sending = True
     logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stop request received.")
+    notify_admin("🛑 Stop request received. Script stopped.")
     return redirect(url_for("index"))
 
 
