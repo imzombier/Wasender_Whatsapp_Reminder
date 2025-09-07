@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, Response, session
 import re, pandas as pd, requests, os, time, threading, random
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 # ---------------- CONFIG ----------------
@@ -25,6 +25,12 @@ logs = []
 stop_sending = False
 task_running = False
 
+# ---------------- TIMEZONE ----------------
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    """Return current IST time string"""
+    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
 
 # ---------------- AUTH DECORATOR ----------------
 def login_required(f):
@@ -34,7 +40,6 @@ def login_required(f):
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated_function
-
 
 # ---------------- LOGIN ROUTES ----------------
 @app.route("/login", methods=["GET", "POST"])
@@ -51,12 +56,10 @@ def login():
 
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
-
 
 # ----------- Helper Functions ------------
 def normalize_columns(cols):
@@ -67,23 +70,20 @@ def normalize_columns(cols):
         normalized.append(c)
     return normalized
 
-
 def get_value(row, possible_names):
     for name in possible_names:
         if name.upper() in row.index:
             return row[name.upper()]
     return None
 
-
 def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
     """Build Telugu WhatsApp message based on BUCKET AGING ranges"""
-
     try:
         days_pending = int(float(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]) or 0))
     except:
         days_pending = 0
 
-    if days_pending == 0:  # Fresh reminder
+    if days_pending == 0:
         template = (
             "👋 ప్రియమైన {name} గారు,\n\n"
             "📌 లోన్ నంబర్: {loan_no}\n"
@@ -142,7 +142,6 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
         overdue=overdue, payable=payable, days=int(days_pending), paylink=PAYMENT_LINK
     )
 
-
 def send_whatsapp(mobile, message):
     mobile_str = str(mobile).strip()
     if not mobile_str.startswith("+"):
@@ -158,12 +157,9 @@ def send_whatsapp(mobile, message):
         print("Error:", e)
         return False
 
-
 def notify_admin(message):
-    """Send script status updates to admin WhatsApp"""
     if ADMIN_WHATSAPP:
         send_whatsapp(ADMIN_WHATSAPP, message)
-
 
 # ----------- Background sending function ------------
 def process_messages(file, skip_loans_input, sleep_min, sleep_max):
@@ -175,7 +171,6 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
     total = len(df)
     sent_count = 0
 
-    # ✅ Pre-calculate milestone percentages
     milestone_percents = [20, 40, 60, 80, 100]
     next_milestone_idx = 0
 
@@ -183,7 +178,7 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
 
     for idx, row in df.iterrows():
         if stop_sending:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏹ Sending stopped by user.")
+            logs.append(f"[{now_ist()}] ⏹ Sending stopped by user.")
             notify_admin("🛑 Sending stopped manually.")
             break
 
@@ -202,56 +197,54 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
         payable = (edi + overdue) - advance
 
         if not name or not mobile:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Skipped row – Missing Name or Mobile")
+            logs.append(f"[{now_ist()}] ⚠️ Skipped row – Missing Name or Mobile")
             continue
 
         if loan_no in skip_loans:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
+            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
             continue
 
         if payable <= 0:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏩ Skipped {name} ({mobile}) – No pending amount")
+            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – No pending amount")
             continue
 
         message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable)
         success = send_whatsapp(mobile, message)
         sent_count += 1
 
-        now = datetime.now().strftime("%H:%M:%S")
-        logs.append(f"[{now}] ✅ Sent to {name} ({mobile})" if success else f"[{now}] ❌ Failed {name} ({mobile})")
-        logs.append(f"[{now}] 📊 Progress: {sent_count} / {total}")
+        logs.append(f"[{now_ist()}] ✅ Sent to {name} ({mobile})" if success else f"[{now_ist()}] ❌ Failed {name} ({mobile})")
+        logs.append(f"[{now_ist()}] 📊 Progress: {sent_count} / {total}")
 
-        # ✅ milestone check by percentage
         progress_percent = int((sent_count / total) * 100)
         if next_milestone_idx < len(milestone_percents) and progress_percent >= milestone_percents[next_milestone_idx]:
             percent = milestone_percents[next_milestone_idx]
             notify_admin(f"📊 Progress: {percent}% ({sent_count}/{total} sent)")
-            logs.append(f"[{now}] 📢 Milestone reached: {percent}% ({sent_count}/{total})")
+            logs.append(f"[{now_ist()}] 📢 Milestone reached: {percent}% ({sent_count}/{total})")
             next_milestone_idx += 1
 
         wait_time = random.randint(sleep_min, sleep_max)
-        logs.append(f"[{now}] ⏳ Waiting {wait_time} seconds before next message...")
+        logs.append(f"[{now_ist()}] ⏳ Waiting {wait_time} seconds before next message...")
         time.sleep(wait_time)
 
     if not stop_sending:
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 Completed sending all messages")
+        logs.append(f"[{now_ist()}] 🎉 Completed sending all messages")
         notify_admin(f"✅ Completed. Sent {sent_count}/{total} messages.")
 
     task_running = False
     stop_sending = False
+
 # ----------------- ROUTES -----------------
 @app.route("/", methods=["GET", "POST"])
-@login_required  # ✅ ensures user must be logged in
+@login_required
 def index():
     global logs, stop_sending, task_running
 
-    # If somehow session expired, redirect (extra safety)
     if "user" not in session:
         return redirect(url_for("login"))
 
     if request.method == "POST":
         if task_running:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ A sending task is already running.")
+            logs.append(f"[{now_ist()}] ⚠️ A sending task is already running.")
             return render_template("index.html", live=True, logs=logs)
 
         file = request.files.get("file")
@@ -262,7 +255,7 @@ def index():
         if not file:
             return redirect(url_for("index"))
 
-        logs = []  # clear logs when new task starts
+        logs = []
         stop_sending = False
         task_running = True
         file_bytes = BytesIO(file.read())
@@ -287,10 +280,9 @@ def index():
 def stop():
     global stop_sending
     stop_sending = True
-    logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stop request received.")
-    notify_admin("🛑 Stop request received. Script stopped.")
+    logs.append(f"[{now_ist()}] 🛑 Stop request received.")
+    notify_admin("🛑 Script stopped by user.")
     return redirect(url_for("index"))
-
 
 @app.route("/stream_logs")
 @login_required
@@ -306,7 +298,6 @@ def stream_logs():
             time.sleep(1)
 
     return Response(generate(), mimetype="text/event-stream")
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
