@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for, Response
+from flask import Flask, render_template, request, redirect, url_for, Response, session
 import re, pandas as pd, requests, os, time, threading, random
 from io import BytesIO
 from datetime import datetime
+from functools import wraps
 
 # ---------------- CONFIG ----------------
 WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
@@ -11,12 +12,50 @@ PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in"
 # Your personal WhatsApp number for notifications
 ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "+918096091809")
 
+# Login credentials from environment
+LOGIN_USER = os.getenv("APP_USERNAME", "Krishna")
+LOGIN_PASS = os.getenv("APP_PASSWORD", "Krishna@1122")
+
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
+
 logs = []
 
 # Global state
 stop_sending = False
 task_running = False
+
+
+# ---------------- AUTH DECORATOR ----------------
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ---------------- LOGIN ROUTES ----------------
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        if username == LOGIN_USER and password == LOGIN_PASS:
+            session["user"] = username
+            return redirect(url_for("index"))
+        else:
+            return render_template("login.html", error="Invalid username or password")
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # ----------- Helper Functions ------------
@@ -200,12 +239,15 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
 
     task_running = False
     stop_sending = False
-
-
 # ----------------- ROUTES -----------------
 @app.route("/", methods=["GET", "POST"])
+@login_required  # ✅ ensures user must be logged in
 def index():
     global logs, stop_sending, task_running
+
+    # If somehow session expired, redirect (extra safety)
+    if "user" not in session:
+        return redirect(url_for("login"))
 
     if request.method == "POST":
         if task_running:
@@ -240,8 +282,8 @@ def index():
                            skip_loans="", sleep_min=61, sleep_max=180,
                            live=task_running, logs=logs)
 
-
 @app.route("/stop")
+@login_required
 def stop():
     global stop_sending
     stop_sending = True
@@ -251,6 +293,7 @@ def stop():
 
 
 @app.route("/stream_logs")
+@login_required
 def stream_logs():
     def generate():
         last_index = 0
