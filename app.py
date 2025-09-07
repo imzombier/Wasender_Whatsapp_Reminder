@@ -13,8 +13,8 @@ PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in"
 ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "+918096091809")
 
 # Login credentials from environment
-LOGIN_USER = os.getenv("APP_USERNAME", "Krishna")
-LOGIN_PASS = os.getenv("APP_PASSWORD", "Krishna@1122")
+LOGIN_USER = os.getenv("APP_USERNAME", "")
+LOGIN_PASS = os.getenv("APP_PASSWORD", "")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
