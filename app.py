@@ -19,9 +19,10 @@ LOGIN_PASS = os.getenv("APP_PASSWORD", "")
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-logs = []
+# ---------------- AUTO LOGOUT (30 mins) ----------------
+app.permanent_session_lifetime = timedelta(minutes=30)
 
-# Global state
+logs = []
 stop_sending = False
 task_running = False
 
@@ -29,7 +30,6 @@ task_running = False
 IST = timezone(timedelta(hours=5, minutes=30))
 
 def now_ist():
-    """Return current IST time string"""
     return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
 
 # ---------------- AUTH DECORATOR ----------------
@@ -50,6 +50,7 @@ def login():
 
         if username == LOGIN_USER and password == LOGIN_PASS:
             session["user"] = username
+            session.permanent = True  # enable auto-expiry (30 mins)
             return redirect(url_for("index"))
         else:
             return render_template("login.html", error="Invalid username or password")
@@ -77,7 +78,6 @@ def get_value(row, possible_names):
     return None
 
 def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable):
-    """Build Telugu WhatsApp message based on BUCKET AGING ranges"""
     try:
         days_pending = int(float(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]) or 0))
     except:
@@ -170,7 +170,6 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
 
     total = len(df)
     sent_count = 0
-
     milestone_percents = [20, 40, 60, 80, 100]
     next_milestone_idx = 0
 
