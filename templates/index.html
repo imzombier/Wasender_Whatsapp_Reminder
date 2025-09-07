@@ -27,6 +27,39 @@
       font-size: 1.3rem;
     }
 
+    /* User + Power Button */
+    .topbar .user-power {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .topbar strong {
+      font-size: 1rem;
+    }
+
+    /* Power Button */
+    .btn-power {
+      background: transparent;
+      border-radius: 50%;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      padding: 5px;
+      text-decoration: none;
+      transition: 0.3s;
+    }
+
+    .btn-power img {
+      width: 50px;
+      height: 40px;
+    }
+
+    .btn-power:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Card Header */
     .card-header {
       background: #9b0d19;
       color: #fff;
@@ -51,7 +84,7 @@
     }
 
     #logContainer th {
-      background: #9b0d19;
+      background: #fc9d19;
       color: #fff;
       position: sticky;
       top: 0;
@@ -67,16 +100,14 @@
       border-bottom: 1px solid #eee;
     }
 
-    /* Alternate row background colors */
     #logContainer tbody tr:nth-child(odd) {
       background-color: #ffffff;
     }
 
     #logContainer tbody tr:nth-child(even) {
-      background-color: #cc8800;
+      background-color: #fc9d19;
     }
 
-    /* Log status colors */
     #logContainer tr.success td {
       color: #00bd45;
       font-weight: 500;
@@ -84,19 +115,9 @@
 
     #logContainer tr {
       height: 40px;
-      /* adjust as needed */
     }
 
-
-    footer {
-      padding: 10px;
-      background: #eee;
-      text-align: center;
-      font-size: 0.85rem;
-      margin-top: 20px;
-    }
-
-    /* --- Unified Button Style --- */
+    /* Unified Button Style */
     .btn-custom {
       display: inline-flex;
       align-items: center;
@@ -130,6 +151,24 @@
     .btn-stop:hover {
       background: #b02a37;
     }
+
+    .container {
+      max-width: 98% !important;
+    }
+
+    footer {
+      padding: 10px;
+      background: #eee;
+      text-align: center;
+      font-size: 0.85rem;
+      margin-top: 20px;
+    }
+
+    footer a {
+      font-weight: bold;
+      text-decoration: none;
+      color: #000;
+    }
   </style>
 </head>
 
@@ -137,13 +176,17 @@
   <!-- Topbar -->
   <div class="topbar">
     <h3>WhatsApp Reminder</h3>
-    <span><strong>K R I S H N A N A I D U</strong></span>
+    <div class="user-power">
+      <strong>{{ session['user'] }}</strong>
+      <a href="{{ url_for('logout') }}" class="btn-power" title="Logout">
+        <img src="{{ url_for('static', filename='power.png') }}" alt="Logout">
+      </a>
+    </div>
   </div>
 
   <!-- Content -->
   <div class="container mt-4">
     <div class="card shadow">
-      <div class="card-header">Upload & Configure</div>
       <div class="card-body">
         <form method="POST" enctype="multipart/form-data" class="mb-3">
           <div class="row mb-3">
@@ -153,7 +196,8 @@
             </div>
             <div class="col-md-6">
               <label class="form-label fw-bold">Skip Loan Numbers:</label>
-              <input type="text" name="skip_loans" placeholder="LAWCGNT123, LAWCGNT456" class="form-control">
+              <input type="text" name="skip_loans" placeholder="LAWCGNT123, LAWCGNT456" class="form-control"
+                value="{{ skip_loans }}">
             </div>
           </div>
 
@@ -207,14 +251,13 @@
 
   <!-- Footer -->
   <footer>
-    Developed by <a href="mailto:kona.krishna1997@gmail.com">Krishna</a>
+    Developed by <strong><a href="mailto:kona.krishna1997@gmail.com">Krishna</a></strong>
   </footer>
 
   <script>
     let sentCount = 0;
     const logTable = document.getElementById('logTable');
     const evtSource = new EventSource("/stream_logs");
-
     let tempRow = null;
 
     evtSource.onmessage = function (event) {
@@ -229,11 +272,9 @@
         const tdProgress = document.createElement("td");
         const tdWait = document.createElement("td");
 
-        // Extract timestamp [HH:MM:SS]
         const timeMatch = msg.match(/\[(.*?)\]/);
         tdTime.textContent = timeMatch ? timeMatch[1] : "-";
 
-        // Message without timestamp
         tdMsg.textContent = msg.replace(/\[.*?\]\s*/, "");
         tdStatus.textContent = "Success";
         tdStatus.style.color = "green";
