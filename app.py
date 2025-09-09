@@ -62,6 +62,19 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+# ----------- Skip Loans Persistence ------------
+SKIP_FILE = "skip_loans.txt"
+
+def load_skip_loans():
+    if not os.path.exists(SKIP_FILE):
+        return []
+    with open(SKIP_FILE, "r", encoding="utf-8") as f:
+        return [ln.strip().upper() for ln in f.read().split(",") if ln.strip()]
+
+def save_skip_loans(skip_loans_input):
+    with open(SKIP_FILE, "w", encoding="utf-8") as f:
+        f.write(skip_loans_input.strip())
+
 # ----------- Helper Functions ------------
 def normalize_columns(cols):
     normalized = []
@@ -166,7 +179,9 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max):
     global logs, stop_sending, task_running
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
-    skip_loans = [ln.strip().upper() for ln in re.split(r'[,\s]+', skip_loans_input) if ln.strip()]
+
+    # load skip loans from file
+    skip_loans = load_skip_loans()
 
     total = len(df)
     sent_count = 0
@@ -251,6 +266,9 @@ def index():
         sleep_min = int(request.form.get("sleep_min", "61"))
         sleep_max = int(request.form.get("sleep_max", "180"))
 
+        if skip_loans_input:
+            save_skip_loans(skip_loans_input)
+
         if not file:
             return redirect(url_for("index"))
 
@@ -271,7 +289,8 @@ def index():
                                live=True, logs=logs)
 
     return render_template("index.html",
-                           skip_loans="", sleep_min=61, sleep_max=180,
+                           skip_loans=",".join(load_skip_loans()),
+                           sleep_min=61, sleep_max=180,
                            live=task_running, logs=logs)
 
 @app.route("/stop")
