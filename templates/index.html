@@ -27,17 +27,6 @@
       font-size: 1.3rem;
     }
 
-    /* User + Power Button */
-    .topbar .user-power {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .topbar strong {
-      font-size: 1rem;
-    }
-
     /* Power Button */
     .btn-power {
       background: transparent;
@@ -199,16 +188,28 @@
             </div>
           </div>
 
+          <!-- METHOD + Min Wait + Max Wait in Single Row -->
           <div class="row mb-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
+              <label class="form-label fw-bold">Select Method:</label>
+              <select name="method" class="form-select">
+                <option value="method1" {% if method=="method1" %}selected{% endif %}>⚠️ Overdue Reminder</option>
+                <option value="method2" {% if method=="method2" %}selected{% endif %}>📌 Today EMI Reminder</option>
+                <option value="method3" {% if method=="method3" %}selected{% endif %}>🚫 EMI Bounced Alert</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
               <label class="form-label fw-bold">Min Wait (sec):</label>
               <input type="number" name="sleep_min" value="{{ sleep_min }}" min="1" class="form-control">
             </div>
-            <div class="col-md-6">
+
+            <div class="col-md-4">
               <label class="form-label fw-bold">Max Wait (sec):</label>
               <input type="number" name="sleep_max" value="{{ sleep_max }}" min="1" class="form-control">
             </div>
           </div>
+
 
           <!-- Start / Stop Buttons -->
           <button type="submit" class="btn-custom btn-start">
@@ -292,14 +293,11 @@
 
       else if (msg.includes("Progress")) {
         if (tempRow) {
-          // remove [timestamp]
           const cleanMsg = msg.replace(/\[.*?\]\s*/, "");
-          // now cleanMsg will be only 📊 1 / 9 in progress
           const countOnly = cleanMsg.replace("in progress", "").trim();
-          tempRow.children[3].textContent = countOnly; // only show "📊 1 / 9"
+          tempRow.children[3].textContent = countOnly;
         }
       }
-
 
       else if (msg.includes("Waiting")) {
         if (tempRow) {
