@@ -1,15 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, Response, session
-import re, pandas as pd, requests, os, time, threading, random
+from flask import Flask, render_template, request, redirect, url_for, Response, session, send_file
+import re, pandas as pd, requests, os, time, threading, random, json
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 # ---------------- CONFIG ----------------
-WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")  # keep your original URL in env
+WASENDER_URL = os.getenv("WASENDER_URL", "https://wasenderapi.com/api/send-message")
 API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
-
-# Your personal WhatsApp number for notifications
 ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "+918096091809")
 
 # Login credentials
@@ -18,21 +16,47 @@ LOGIN_PASS = os.getenv("APP_PASSWORD", "")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
-
-# ---------------- AUTO LOGOUT (30 mins) ----------------
 app.permanent_session_lifetime = timedelta(minutes=30)
 
+# ---------------- STATE ----------------
 logs = []
 stop_sending = False
 task_running = False
+sse_logs = []
+report_rows = []
+success_count = 0
+skipped_count = 0
+failed_count = 0
+current_total = 0
 
 # ---------------- TIMEZONE ----------------
 IST = timezone(timedelta(hours=5, minutes=30))
-
 def now_ist():
     return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
 
-# ---------------- AUTH DECORATOR ----------------
+# ---------------- EVENTS ----------------
+def add_event(status, message, mobile="", bucket="", progress="", wait=""):
+    global sse_logs, report_rows, success_count, skipped_count, failed_count
+    event = {
+        "time": now_ist(),
+        "status": status,
+        "message": message,
+        "mobile": mobile,
+        "bucket": bucket,
+        "progress": progress,
+        "wait": wait
+    }
+    sse_logs.append(json.dumps(event, ensure_ascii=False))
+    report_rows.append(event.copy())
+
+    if status.lower() == "success":
+        success_count += 1
+    elif status.lower() == "skipped":
+        skipped_count += 1
+    elif status.lower() == "failed":
+        failed_count += 1
+
+# ---------------- AUTH ----------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -41,20 +65,18 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ---------------- LOGIN ROUTES ----------------
+# ---------------- LOGIN ----------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-
         if username == LOGIN_USER and password == LOGIN_PASS:
             session["user"] = username
             session.permanent = True
             return redirect(url_for("index"))
         else:
             return render_template("login.html", error="Invalid username or password")
-
     return render_template("login.html")
 
 @app.route("/logout")
@@ -62,26 +84,20 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# ----------- Skip Loans Persistence ------------
+# ---------------- SKIP LOANS ----------------
 SKIP_FILE = "skip_loans.txt"
-
 def load_skip_loans():
     if not os.path.exists(SKIP_FILE):
         return []
     with open(SKIP_FILE, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-        if not content:
-            return []
-        # support comma or newline separated values, normalize to uppercase and strip spaces
-        parts = re.split(r'[\r\n,]+', content)
+        parts = re.split(r'[\r\n,]+', f.read().strip())
         return [ln.strip().upper() for ln in parts if ln.strip()]
 
 def save_skip_loans(skip_loans_input):
-    # accepts a raw input string (can be comma or newline separated). store exactly as provided (trimmed)
     with open(SKIP_FILE, "w", encoding="utf-8") as f:
         f.write(skip_loans_input.strip())
 
-# ----------- Helper Functions ------------
+# ---------------- HELPERS ----------------
 def normalize_columns(cols):
     normalized = []
     for c in cols:
@@ -97,11 +113,6 @@ def get_value(row, possible_names):
     return None
 
 def parse_bucket_value(raw_bucket):
-    """
-    Robust parsing of BUCKET AGING values.
-    Accepts floats (1.0), strings ("1.00", " 7.00 "), NaN, empty strings.
-    Returns integer bucket aging (0 if unparsable or blank).
-    """
     try:
         if pd.notna(raw_bucket) and str(raw_bucket).strip() != "":
             return int(float(str(raw_bucket).strip()))
@@ -110,36 +121,15 @@ def parse_bucket_value(raw_bucket):
     return 0
 
 def get_telugu_weekday():
-    """
-    Returns today's weekday name in Telugu (సోమవారం, మంగళవారం, ... , ఆదివారం).
-    Uses IST timezone.
-    """
-    wk = datetime.now(IST).weekday()  # Monday = 0
+    wk = datetime.now(IST).weekday()
     mapping = {
-        0: "సోమవారం",
-        1: "మంగళవారం",
-        2: "బుధవారం",
-        3: "గురువారం",
-        4: "శుక్రవారం",
-        5: "శనివారం",
-        6: "ఆదివారం"
+        0: "సోమవారం", 1: "మంగళవారం", 2: "బుధవారం",
+        3: "గురువారం", 4: "శుక్రవారం", 5: "శనివారం", 6: "ఆదివారం"
     }
     return mapping.get(wk, "ఈ రోజు")
 
 def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day="ఈ రోజు"):
-    # --- FIXED BUCKET PARSING HERE ---
-    raw_bucket = get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"])
-    bucket_aging = parse_bucket_value(raw_bucket)
-    # log raw vs parsed for debugging
-    logs.append(f"[{now_ist()}] 📝 build_msg_dynamic - Row {name} ({loan_no}) Bucket raw: {raw_bucket}, Parsed: {bucket_aging}")
-
-    try:
-        # kept original templates and logic but replaced the old try/except parsing with parse_bucket_value above
-        pass
-    except Exception:
-        # won't happen here because parsing above handles exceptions
-        bucket_aging = 0
-
+    bucket_aging = parse_bucket_value(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]))
     # ---------------- METHOD 1 (Overdue) ----------------
     if method == "method1":
         # do not send if bucket aging is zero
@@ -235,192 +225,153 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
 
     else:
         template = "ప్రియమైన {name} గారు, డేటా లోపం కారణంగా సందేశం రూపొందించబడలేదు."
-
-    return template.format(
-        name=name, loan_no=loan_no, advance=advance, edi=edi,
+        
+    return template.format(name=name, loan_no=loan_no, advance=advance, edi=edi,
         overdue=overdue, payable=payable, days=int(bucket_aging), paylink=PAYMENT_LINK,
-        emi_day=emi_day or get_telugu_weekday()
-    )
+        emi_day=emi_day or get_telugu_weekday())
 
 def send_whatsapp(mobile, message):
     mobile_str = str(mobile).strip()
     if not mobile_str.startswith("+"):
         mobile_str = f"+91{mobile_str}"
-
     payload = {"to": mobile_str, "text": message}
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-
     try:
         res = requests.post(WASENDER_URL, json=payload, headers=headers)
         return res.status_code == 200
-    except Exception as e:
-        print("Error:", e)
+    except Exception:
         return False
 
 def notify_admin(message):
     if ADMIN_WHATSAPP:
         send_whatsapp(ADMIN_WHATSAPP, message)
 
-# ----------- Background sending function ------------
 def process_messages(file, skip_loans_input, sleep_min, sleep_max, method, emi_day="ఈ రోజు"):
-    global logs, stop_sending, task_running
+    global stop_sending, task_running, sse_logs, report_rows, success_count, skipped_count, failed_count, current_total
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
-
     skip_loans = load_skip_loans()
     total = len(df)
+    current_total = total
     sent_count = 0
-    milestone_percents = [20, 40, 60, 80, 100]
-    next_milestone_idx = 0
+    sse_logs, report_rows = [], []
+    success_count = skipped_count = failed_count = 0
 
     notify_admin(f"🚀 Message sending started.\nTotal records: {total}")
-    logs.append(f"[{now_ist()}] 🏁 Started sending (method={method}, emi_day={emi_day})")
-
-    # ---- Wait 30 seconds before sending to customers ----
-    logs.append(f"[{now_ist()}] ⏳ Waiting 30 seconds before sending to customers...")
     time.sleep(30)
+
+    # ✅ Milestones set (percentage thresholds)
+    milestone_thresholds = [25, 50, 75, 100]
+    notified = {m: False for m in milestone_thresholds}
 
     for idx, row in df.iterrows():
         if stop_sending:
-            logs.append(f"[{now_ist()}] ⏹ Sending stopped by user.")
-            notify_admin("🛑 Sending stopped manually.")
             break
 
         name = get_value(row, ["CUSTOMER NAME", "CUSTOMERNAME", "NAME"])
         loan_no = str(get_value(row, ["LOAN A/C NO", "LOANA/CNO", "LOAN AC NO", "LOAN NO"]) or "").upper()
         mobile_raw = get_value(row, ["MOBILE NO", "MOBILENO", "PHONE", "MOBILENUMBER"])
-
-        if pd.notna(mobile_raw):
-            mobile = str(int(mobile_raw)) if isinstance(mobile_raw, float) else str(mobile_raw).strip()
-        else:
-            mobile = ""
-
+        mobile = str(int(mobile_raw)) if isinstance(mobile_raw, float) else str(mobile_raw).strip() if pd.notna(mobile_raw) else ""
         edi = float(get_value(row, ["EDI AMOUNT", "EDIAMOUNT", "EDI"]) or 0)
         overdue = float(get_value(row, ["OVER DUE", "OVERDUE"]) or 0)
         advance = float(get_value(row, ["ADVANCE", "ADV"]) or 0)
         payable = (edi + overdue) - advance
+        bucket_aging = parse_bucket_value(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]))
 
-        # --- FIXED BUCKET PARSING HERE ---
-        raw_bucket = get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"])
-        bucket_aging = parse_bucket_value(raw_bucket)
-        logs.append(f"[{now_ist()}] 📝 process_messages - Row {name} ({loan_no}) Bucket raw: {raw_bucket}, Parsed: {bucket_aging}")
-
+        # Skip checks
         if not name or not mobile:
-            logs.append(f"[{now_ist()}] ⚠️ Skipped row – Missing Name or Mobile")
+            add_event("Skipped", "Missing Name or Mobile", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
-
         if loan_no in skip_loans:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – Loan {loan_no} in skip list")
+            add_event("Skipped", f"Loan {loan_no} in skip list", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
-
         if payable <= 0:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – No pending amount")
+            add_event("Skipped", "No pending amount", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
-
-        # ---------- CONDITIONS ----------
-        # Method1: only when bucket_aging > 0
         if method == "method1" and bucket_aging == 0:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – Method1 requires bucket aging > 0")
+            add_event("Skipped", "Method1 requires bucket aging > 0", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
-
-        # Method2 & Method3: only when edi != 0
-        if method == "method2" and edi == 0:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – Method2 requires EDI != 0")
+        if method in ["method2", "method3"] and edi == 0:
+            add_event("Skipped", f"{method} requires EDI != 0", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
-
-        if method == "method3" and edi == 0:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – Method3 requires EDI != 0")
-            continue
-        # -------------------------------
 
         message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day)
         if not message:
-            logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – No message generated")
+            add_event("Skipped", "No message generated", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
 
+        wait_time = random.randint(sleep_min, sleep_max)
         success = send_whatsapp(mobile, message)
         sent_count += 1
+        if success:
+            add_event("Success", f"{name}", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait=f"{wait_time}s")
+        else:
+            add_event("Failed", f"Failed {name}", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait=f"{wait_time}s")
 
-        logs.append(f"[{now_ist()}] ✅ Sent to {name} ({mobile})" if success else f"[{now_ist()}] ❌ Failed {name} ({mobile})")
-        logs.append(f"[{now_ist()}] 📊 Progress: {sent_count} / {total}")
+        # ✅ Milestone notifications (>= 25%, 50%, 75%, 100%)
+        progress_percent = int((sent_count / total) * 100)
+        for m in milestone_thresholds:
+            if not notified[m] and progress_percent >= m:
+                time.sleep(20)  # cooldown before notifying admin
+                notify_admin(f"📊 Milestone Reached: {m}%\n✅ Sent {sent_count}/{total}")
+                notified[m] = True
 
-        progress_percent = int((sent_count / total) * 100) if total > 0 else 100
-        if next_milestone_idx < len(milestone_percents) and progress_percent >= milestone_percents[next_milestone_idx]:
-            percent = milestone_percents[next_milestone_idx]
-            notify_admin(f"📊 Progress: {percent}% ({sent_count}/{total} sent)")
-            logs.append(f"[{now_ist()}] 📢 Milestone reached: {percent}% ({sent_count}/{total})")
-            next_milestone_idx += 1
-
-        wait_time = random.randint(sleep_min, sleep_max)
-        logs.append(f"[{now_ist()}] ⏳ Waiting {wait_time} seconds before next message...")
         time.sleep(wait_time)
 
     if not stop_sending:
-        logs.append(f"[{now_ist()}] 🎉 Completed sending all messages")
         notify_admin(f"✅ Completed. Sent {sent_count}/{total} messages.")
+        add_event("Completed", f"Completed. Sent {sent_count}/{total}", progress=f"{sent_count}/{total}", wait="-")
 
     task_running = False
     stop_sending = False
-
-# ----------------- ROUTES -----------------
+# ---------------- ROUTES ----------------
 @app.route("/", methods=["GET", "POST"])
 @login_required
 def index():
-    global logs, stop_sending, task_running
-
-    if "user" not in session:
-        return redirect(url_for("login"))
-
+    global stop_sending, task_running, current_total, sse_logs, report_rows, success_count, skipped_count, failed_count
     if request.method == "POST":
         if task_running:
-            logs.append(f"[{now_ist()}] ⚠️ A sending task is already running.")
-            return render_template("index.html", live=True, logs=logs)
-
+            return render_template("index.html", live=True, logs=logs, total_customers=current_total)
         file = request.files.get("file")
         skip_loans_input = request.form.get("skip_loans", "").strip()
         sleep_min = int(request.form.get("sleep_min", "61"))
         sleep_max = int(request.form.get("sleep_max", "120"))
         method = request.form.get("method", "method1")
-        # EMI day taken from form (Telugu). If not provided, default to today's Telugu weekday.
         emi_day = request.form.get("emi_day", "").strip() or get_telugu_weekday()
-
         if skip_loans_input:
             save_skip_loans(skip_loans_input)
-
         if not file:
             return redirect(url_for("index"))
-
-        logs = []
+        sse_logs, report_rows = [], []
+        success_count = skipped_count = failed_count = 0
         stop_sending = False
         task_running = True
-        file_bytes = BytesIO(file.read())
-
-        thread = threading.Thread(
+        file_content = file.read()
+        try:
+            current_total = len(pd.read_excel(BytesIO(file_content)))
+        except Exception:
+            current_total = 0
+        threading.Thread(
             target=process_messages,
-            args=(file_bytes, skip_loans_input, sleep_min, sleep_max, method, emi_day)
-        )
-        thread.start()
-
+            args=(BytesIO(file_content), skip_loans_input, sleep_min, sleep_max, method, emi_day)
+        ).start()
         return render_template("index.html",
                                skip_loans=skip_loans_input,
                                sleep_min=sleep_min, sleep_max=sleep_max,
                                method=method, emi_day=emi_day,
-                               live=True, logs=logs)
-
-    # GET
+                               live=True, logs=logs, total_customers=current_total)
     return render_template("index.html",
                            skip_loans=",".join(load_skip_loans()),
                            sleep_min=61, sleep_max=120,
                            method="method1",
                            emi_day=get_telugu_weekday(),
-                           live=task_running, logs=logs)
+                           live=task_running, logs=logs, total_customers=current_total)
 
 @app.route("/stop")
 @login_required
 def stop():
     global stop_sending
     stop_sending = True
-    logs.append(f"[{now_ist()}] 🛑 Stop request received.")
     notify_admin("🛑 Script stopped by user.")
     return redirect(url_for("index"))
 
@@ -430,14 +381,35 @@ def stream_logs():
     def generate():
         last_index = 0
         while True:
-            global logs
-            if last_index < len(logs):
-                for i in range(last_index, len(logs)):
-                    yield f"data: {logs[i]}\n\n"
-                last_index = len(logs)
+            global sse_logs
+            if last_index < len(sse_logs):
+                for i in range(last_index, len(sse_logs)):
+                    yield f"data: {sse_logs[i]}\n\n"
+                last_index = len(sse_logs)
             time.sleep(1)
-
     return Response(generate(), mimetype="text/event-stream")
+
+@app.route("/download_report")
+@login_required
+def download_report():
+    global report_rows
+    if not report_rows:
+        df_empty = pd.DataFrame(columns=["time","status","message","mobile","bucket","progress","wait"])
+        output = BytesIO()
+        df_empty.to_excel(output, index=False)
+        output.seek(0)
+        return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name="report.xlsx")
+    df = pd.DataFrame(report_rows)
+    cols = ["time","status","message","mobile","bucket","progress","wait"]
+    for c in cols:
+        if c not in df.columns: df[c] = ""
+    df = df[cols]
+    output = BytesIO()
+    df.to_excel(output, index=False)
+    output.seek(0)
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name="report.xlsx")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
