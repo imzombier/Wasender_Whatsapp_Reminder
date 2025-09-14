@@ -17,7 +17,7 @@ IMAGE_URLS = {
     "bucket_31_60": "https://veritas-payment-reminder.onrender.com/static/31-60.jpg",
     "bucket_61_90": "https://veritas-payment-reminder.onrender.com/static/61-90.jpg",
     "bucket_90_plus": "https://veritas-payment-reminder.onrender.com/static/npa.jpg",
-    "method2": "https://veritas-payment-reminder.onrender.com/static/emialert.jpg",
+    "method2": "https://veritas-payment-reminder.onrender.com/static/emialert.jpeg",
     "method3": "https://veritas-payment-reminder.onrender.com/static/bounce.jpg",
 }
 
