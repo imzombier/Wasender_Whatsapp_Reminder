@@ -10,6 +10,17 @@ API_KEY = os.getenv("WASENDER_API_KEY", "")
 PAYMENT_LINK = os.getenv("PAYMENT_LINK", "https://websitepayments.veritasfin.in")
 ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "+918096091809")
 
+# ---------------- IMAGES ----------------
+IMAGE_URLS = {
+    "bucket_1_13": "https://veritas-payment-reminder.onrender.com/static/banner.jpg",
+    "bucket_14_30": "https://veritas-payment-reminder.onrender.com/static/banner.jpg",
+    "bucket_31_60": "https://veritas-payment-reminder.onrender.com/static/31-60.jpg",
+    "bucket_61_90": "https://veritas-payment-reminder.onrender.com/static/61-90.jpg",
+    "bucket_90_plus": "https://veritas-payment-reminder.onrender.com/static/npa.jpg",
+    "method2": "https://veritas-payment-reminder.onrender.com/static/emialert.jpg",
+    "method3": "https://veritas-payment-reminder.onrender.com/static/bounce.jpg",
+}
+
 # Login credentials
 LOGIN_USER = os.getenv("APP_USERNAME", "")
 LOGIN_PASS = os.getenv("APP_PASSWORD", "")
@@ -130,11 +141,12 @@ def get_telugu_weekday():
 
 def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day="ఈ రోజు"):
     bucket_aging = parse_bucket_value(get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"]))
+    image_url = None  # default
+
     # ---------------- METHOD 1 (Overdue) ----------------
     if method == "method1":
-        # do not send if bucket aging is zero
         if bucket_aging == 0:
-            return None
+            return None, None  # message + image_url
 
         if 1 <= bucket_aging <= 13:
             template = (
@@ -146,6 +158,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "⚠️ ఈరోజే ₹{payable} చెల్లించండి, లేకపోతే అదనపు లేట్ ఫైన్ & CIBIL రిపోర్ట్‌లో నెగటివ్ ప్రభావం పడుతుంది.\n\n"
                 "💳 చెల్లించండి: {paylink}"
             )
+            image_url = IMAGE_URLS["bucket_1_13"]
+
         elif 14 <= bucket_aging <= 30:
             template = (
                 "⚠️ హెచ్చరిక {name} గారు,\n\n"
@@ -156,6 +170,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "⚠️ ఈరోజే ₹{payable} చెల్లించండి, లేకపోతే అదనపు లేట్ ఫైన్ & CIBIL రిపోర్ట్‌లో నెగటివ్ ప్రభావం పడుతుంది.\n\n"
                 "💳 చెల్లించండి: {paylink}"
             )
+            image_url = IMAGE_URLS["bucket_14_30"]
+
         elif 31 <= bucket_aging <= 60:
             template = (
                 "🚨 ACTION REQUIRED - {name} గారు,\n\n"
@@ -168,7 +184,9 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "🔹 లోన్ వివరాలు కోసం *1*\n"
                 "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
-                )
+            )
+            image_url = IMAGE_URLS["bucket_31_60"]
+
         elif 61 <= bucket_aging <= 90:
             template = (
                 "🛑 LEGAL WARNING – {name} గారు,\n\n"
@@ -182,6 +200,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
             )
+            image_url = IMAGE_URLS["bucket_61_90"]
+
         elif bucket_aging > 90:
             template = (
                 "⚖️ LEGAL NOTICE – {name} గారు,\n\n"
@@ -195,13 +215,13 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
             )
+            image_url = IMAGE_URLS["bucket_90_plus"]
 
         else:
-            return None
+            return None, None
 
     # ---------------- METHOD 2 (EMI Reminder with emi_day) ----------------
     elif method == "method2":
-        # method2 should be sent only if edi != 0 (enforced in process_messages)
         template = (
             "👋 ప్రియమైన {name} గారు,\n\n"
             "📌 {emi_day} మీ లోన్ A/c {loan_no} కు ₹{edi} EMI ఉంది.\n\n"
@@ -209,10 +229,10 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
             "⚠️ దయచేసి {emi_day} లోపు ₹{edi} చెల్లించండి, లేకపోతే అదనపు లేట్ ఫైన్ & CIBIL ప్రభావం పడుతుంది.\n\n"
             "💳 చెల్లించండి: {paylink}"
         )
+        image_url = IMAGE_URLS["method2"]
 
     # ---------------- METHOD 3 (Bounce Reminder) ----------------
     elif method == "method3":
-        # method3 should be sent only if edi != 0 (enforced in process_messages)
         template = (
             "⚠️ ప్రియమైన {name} గారు,\n\n"
             "❌ మీ లోన్ A/c {loan_no} EMI ₹{edi} బౌన్స్ అయింది.\n"
@@ -222,25 +242,56 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
             "⚠️ వెంటనే ₹{payable} చెల్లించండి, లేకపోతే అదనపు ఫీజులు & CIBIL ప్రభావం పడుతుంది.\n\n"
             "💳 చెల్లించండి: {paylink}"
         )
+        image_url = IMAGE_URLS["method3"]
 
     else:
-        template = "ప్రియమైన {name} గారు, డేటా లోపం కారణంగా సందేశం రూపొందించబడలేదు."
-        
-    return template.format(name=name, loan_no=loan_no, advance=advance, edi=edi,
-        overdue=overdue, payable=payable, days=int(bucket_aging), paylink=PAYMENT_LINK,
-        emi_day=emi_day or get_telugu_weekday())
+        return None, None
 
-def send_whatsapp(mobile, message):
+    return (
+        template.format(
+            name=name,
+            loan_no=loan_no,
+            advance=advance,
+            edi=edi,
+            overdue=overdue,
+            payable=payable,
+            days=int(bucket_aging),
+            paylink=PAYMENT_LINK,
+            emi_day=emi_day or get_telugu_weekday(),
+        ),
+        image_url,
+    )
+
+def send_whatsapp(mobile, message, image_url=None):
     mobile_str = str(mobile).strip()
     if not mobile_str.startswith("+"):
-        mobile_str = f"+91{mobile_str}"
-    payload = {"to": mobile_str, "text": message}
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        mobile_str = f"+91{mobile_str}"  # Default India code
+
+    payload = {"to": mobile_str}
+
+    # If image is provided, send both image + caption
+    if image_url:
+        payload["text"] = message  # Caption
+        payload["imageUrl"] = image_url
+    else:
+        payload["text"] = message  # Normal text message
+
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     try:
         res = requests.post(WASENDER_URL, json=payload, headers=headers)
-        return res.status_code == 200
-    except Exception:
+        if res.status_code == 200:
+            return True
+        else:
+            print("❌ WhatsApp API Error:", res.status_code, res.text)
+            return False
+    except Exception as e:
+        print("❌ Exception in send_whatsapp:", str(e))
         return False
+
 
 def notify_admin(message):
     if ADMIN_WHATSAPP:
@@ -295,20 +346,24 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max, method, emi_d
             add_event("Skipped", f"{method} requires EDI != 0", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
 
-        message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day)
+        # ✅ Build message and image
+        message, image_url = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day)
         if not message:
             add_event("Skipped", "No message generated", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait="-")
             continue
 
         wait_time = random.randint(sleep_min, sleep_max)
-        success = send_whatsapp(mobile, message)
+
+        # ✅ Pass only selected image_url
+        success = send_whatsapp(mobile, message, image_url=image_url)
+
         sent_count += 1
         if success:
             add_event("Success", f"{name}", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait=f"{wait_time}s")
         else:
             add_event("Failed", f"Failed {name}", mobile=mobile, bucket=bucket_aging, progress=f"{sent_count}/{total}", wait=f"{wait_time}s")
 
-        # ✅ Milestone notifications (>= 25%, 50%, 75%, 100%)
+        # ✅ Milestone notifications
         progress_percent = int((sent_count / total) * 100)
         for m in milestone_thresholds:
             if not notified[m] and progress_percent >= m:
