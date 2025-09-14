@@ -109,7 +109,24 @@ def parse_bucket_value(raw_bucket):
         pass
     return 0
 
-def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method):
+def get_telugu_weekday():
+    """
+    Returns today's weekday name in Telugu (సోమవారం, మంగళవారం, ... , ఆదివారం).
+    Uses IST timezone.
+    """
+    wk = datetime.now(IST).weekday()  # Monday = 0
+    mapping = {
+        0: "సోమవారం",
+        1: "మంగళవారం",
+        2: "బుధవారం",
+        3: "గురువారం",
+        4: "శుక్రవారం",
+        5: "శనివారం",
+        6: "ఆదివారం"
+    }
+    return mapping.get(wk, "ఈ రోజు")
+
+def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day="ఈ రోజు"):
     # --- FIXED BUCKET PARSING HERE ---
     raw_bucket = get_value(row, ["BUCKET AGING", "BUCKETAGING", "DAYS PENDING", "DPDS"])
     bucket_aging = parse_bucket_value(raw_bucket)
@@ -132,7 +149,7 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
         if 1 <= bucket_aging <= 13:
             template = (
                 "👋 ప్రియమైన {name} గారు,\n\n"
-                "📌 లోన్ నంబర్: {loan_no}\n"
+                "📌 లోన్ నంబర్: {loan_no}\n\n"
                 "⏳ {days} రోజులుగా EMI OVERDUE ఉంది.\n"
                 "💰 TODAY EMI : ₹{edi}\n"
                 "❌ OVERDUE AMOUNT : ₹{overdue}\n\n"
@@ -158,8 +175,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "❌ OVERDUE AMOUNT : ₹{overdue}\n\n"
                 "⚠️ ఈరోజే ₹{payable} చెల్లించండి, లేకపోతే లీగల్ యాక్షన్ వస్తుంది.\n\n"
                 "💳 తక్షణం చెల్లించండి: {paylink}\n\n"
-                "🔹 లోన్ వివరాలు కోసం - *1*\n"
-                "🔹 సెటిల్మెంట్ వివరాలు కోసం - *2*\n" 
+                "🔹 లోన్ వివరాలు కోసం *1*\n"
+                "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
                 )
         elif 61 <= bucket_aging <= 90:
@@ -171,8 +188,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "❌ OVERDUE AMOUNT : ₹{overdue}\n\n"
                 "⚠️ తక్షణం  ₹{payable}  చెల్లించకపోతే లీగల్ యాక్షన్ వస్తుంది, CIBIL రిపోర్ట్‌లో ప్రతికూల ప్రభావం పడుతుంది.\n\n"
                 "💳 వెంటనే చెల్లించండి: {paylink}\n\n"
-                "🔹 లోన్ వివరాలు కోసం - *1*\n"
-                "🔹 సెటిల్మెంట్ వివరాలు కోసం - *2*\n" 
+                "🔹 లోన్ వివరాలు కోసం *1*\n"
+                "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
             )
         elif bucket_aging > 90:
@@ -184,23 +201,22 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
                 "❌ OVERDUE AMOUNT : ₹{overdue}\n\n"
                 "⚖️ తక్షణం ₹{payable} చెల్లించకపోతే కోర్టు ప్రాసెస్ ప్రారంభమవుతుంది.\n\n"
                 "💳 వెంటనే చెల్లించండి: {paylink}\n\n"
-                "🔹 లోన్ వివరాలు కోసం - *1*\n"
-                "🔹 సెటిల్మెంట్ వివరాలు కోసం - *2*\n" 
+                "🔹 లోన్ వివరాలు కోసం *1*\n"
+                "🔹 సెటిల్మెంట్ వివరాలు కోసం *2*\n" 
                 "➡️ అని రిప్లై చేయండి."
             )
 
         else:
             return None
 
-    # ---------------- METHOD 2 (Today EMI) ----------------
+    # ---------------- METHOD 2 (EMI Reminder with emi_day) ----------------
     elif method == "method2":
         # method2 should be sent only if edi != 0 (enforced in process_messages)
         template = (
             "👋 ప్రియమైన {name} గారు,\n\n"
-            "📌 ఈరోజు మీ లోన్ A/c {loan_no} కు ₹{edi} EMI ఉంది.\n\n"
-            "💰 TODAY EMI : ₹{edi}\n"
-            "❌ OVERDUE AMOUNT : ₹{overdue}\n\n"
-            "⚠️ ఈరోజే ₹{payable} చెల్లించండి, లేకపోతే అదనపు లేట్ ఫైన్ & CIBIL ప్రభావం పడుతుంది.\n\n"
+            "📌 {emi_day} మీ లోన్ A/c {loan_no} కు ₹{edi} EMI ఉంది.\n\n"
+            "💰 EMI AMOUNT: ₹{edi}\n\n"
+            "⚠️ దయచేసి {emi_day} లోపు ₹{edi} చెల్లించండి, లేకపోతే అదనపు లేట్ ఫైన్ & CIBIL ప్రభావం పడుతుంది.\n\n"
             "💳 చెల్లించండి: {paylink}"
         )
 
@@ -222,7 +238,8 @@ def build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method
 
     return template.format(
         name=name, loan_no=loan_no, advance=advance, edi=edi,
-        overdue=overdue, payable=payable, days=int(bucket_aging), paylink=PAYMENT_LINK
+        overdue=overdue, payable=payable, days=int(bucket_aging), paylink=PAYMENT_LINK,
+        emi_day=emi_day or get_telugu_weekday()
     )
 
 def send_whatsapp(mobile, message):
@@ -245,7 +262,7 @@ def notify_admin(message):
         send_whatsapp(ADMIN_WHATSAPP, message)
 
 # ----------- Background sending function ------------
-def process_messages(file, skip_loans_input, sleep_min, sleep_max, method):
+def process_messages(file, skip_loans_input, sleep_min, sleep_max, method, emi_day="ఈ రోజు"):
     global logs, stop_sending, task_running
     df = pd.read_excel(file)
     df.columns = normalize_columns(df.columns)
@@ -257,6 +274,11 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max, method):
     next_milestone_idx = 0
 
     notify_admin(f"🚀 Message sending started.\nTotal records: {total}")
+    logs.append(f"[{now_ist()}] 🏁 Started sending (method={method}, emi_day={emi_day})")
+
+    # ---- Wait 30 seconds before sending to customers ----
+    logs.append(f"[{now_ist()}] ⏳ Waiting 30 seconds before sending to customers...")
+    time.sleep(30)
 
     for idx, row in df.iterrows():
         if stop_sending:
@@ -311,7 +333,7 @@ def process_messages(file, skip_loans_input, sleep_min, sleep_max, method):
             continue
         # -------------------------------
 
-        message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method)
+        message = build_msg_dynamic(row, name, loan_no, advance, edi, overdue, payable, method, emi_day)
         if not message:
             logs.append(f"[{now_ist()}] ⏩ Skipped {name} ({mobile}) – No message generated")
             continue
@@ -357,8 +379,10 @@ def index():
         file = request.files.get("file")
         skip_loans_input = request.form.get("skip_loans", "").strip()
         sleep_min = int(request.form.get("sleep_min", "61"))
-        sleep_max = int(request.form.get("sleep_max", "180"))
+        sleep_max = int(request.form.get("sleep_max", "120"))
         method = request.form.get("method", "method1")
+        # EMI day taken from form (Telugu). If not provided, default to today's Telugu weekday.
+        emi_day = request.form.get("emi_day", "").strip() or get_telugu_weekday()
 
         if skip_loans_input:
             save_skip_loans(skip_loans_input)
@@ -373,21 +397,22 @@ def index():
 
         thread = threading.Thread(
             target=process_messages,
-            args=(file_bytes, skip_loans_input, sleep_min, sleep_max, method)
+            args=(file_bytes, skip_loans_input, sleep_min, sleep_max, method, emi_day)
         )
         thread.start()
 
         return render_template("index.html",
                                skip_loans=skip_loans_input,
                                sleep_min=sleep_min, sleep_max=sleep_max,
-                               method=method,
+                               method=method, emi_day=emi_day,
                                live=True, logs=logs)
 
     # GET
     return render_template("index.html",
                            skip_loans=",".join(load_skip_loans()),
-                           sleep_min=61, sleep_max=180,
+                           sleep_min=61, sleep_max=120,
                            method="method1",
+                           emi_day=get_telugu_weekday(),
                            live=task_running, logs=logs)
 
 @app.route("/stop")
